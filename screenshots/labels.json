@@ -1,0 +1,377 @@
+[
+  {
+    "image_id": "IMG-1A",
+    "file_name": "originals/IMG-1A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "World Map",
+    "action": "Idle",
+    "ui_state": "Normal",
+    "visible_resources": {
+      "food": "149K",
+      "wood": "112K",
+      "stone": 80000,
+      "silver": 35400,
+      "gold": 2390
+    },
+    "visible_error": null,
+    "actual_behavior": "All resource values are displayed correctly.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-1B",
+    "file_name": "edited-errors/IMG-1B.jpg",
+    "base_image_id": "IMG-1A",
+    "is_synthetic": true,
+    "screen": "World Map",
+    "action": "Idle",
+    "ui_state": "UI Error",
+    "visible_resources": {
+      "food": null,
+      "wood": null,
+      "stone": null,
+      "silver": null,
+      "gold": null
+    },
+    "visible_error": "Resource values are missing.",
+    "actual_behavior": "The resource icons are visible but their numeric values are not displayed.",
+    "linked_ticket_ids": [
+      "BUG-101"
+    ],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-2A",
+    "file_name": "originals/IMG-2A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "Loading",
+    "action": "Enter Battle",
+    "ui_state": "Loading",
+    "visible_error": null,
+    "actual_behavior": "Loading screen is progressing normally.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-2B",
+    "file_name": "edited-errors/IMG-2B.png",
+    "base_image_id": "IMG-2A",
+    "is_synthetic": true,
+    "screen": "Loading",
+    "action": "Enter Battle",
+    "ui_state": "Connection Lost",
+    "visible_error": "Connection Lost",
+    "actual_behavior": "Loading is interrupted because the connection to the server is lost.",
+    "linked_ticket_ids": [
+      "BUG-102"
+    ],
+    "labels_verified": true
+  },
+  {
+  "image_id": "IMG-2C",
+  "file_name": "edited-errors/IMG-2C.jpg",
+  "base_image_id": "IMG-2A",
+  "is_synthetic": true,
+  "screen": "Loading",
+  "action": "Enter Game",
+  "ui_state": "Loading Stuck",
+  "loading_progress": "0%",
+  "visible_error": null,
+  "actual_behavior": "The loading screen remains at 0% and does not proceed to the next game screen.",
+  "linked_ticket_ids": [
+    "BUG-103"
+  ],
+  "labels_verified": true
+  },
+  {
+    "image_id": "IMG-3A",
+    "file_name": "originals/IMG-3A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "Hero Detail",
+    "action": "View Hero",
+    "ui_state": "Normal",
+    "visible_error": null,
+    "actual_behavior": "Hero model, hero statistics and hero skills are displayed correctly.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-3B",
+    "file_name": "edited-errors/IMG-3B.jpg",
+    "base_image_id": "IMG-3A",
+    "is_synthetic": true,
+    "screen": "Hero Detail",
+    "action": "View Hero",
+    "ui_state": "Rendering Error",
+    "visible_error": "Hero model is missing.",
+    "actual_behavior": "Hero information is displayed but the 3D hero model is not rendered.",
+    "linked_ticket_ids": [
+      "BUG-104"
+    ],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-4A",
+    "file_name": "originals/IMG-4A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "Hero List",
+    "action": "View Heroes",
+    "ui_state": "Normal",
+    "visible_error": null,
+    "actual_behavior": "All owned hero portraits are displayed correctly.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-4B",
+    "file_name": "edited-errors/IMG-4B.jpg",
+    "base_image_id": "IMG-4A",
+    "is_synthetic": true,
+    "screen": "Hero List",
+    "action": "View Heroes",
+    "ui_state": "Rendering Error",
+    "visible_error": "Some hero portraits are missing.",
+    "actual_behavior": "Several hero cards are displayed without portraits.",
+    "linked_ticket_ids": [
+      "BUG-105"
+    ],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-5A",
+    "file_name": "originals/IMG-5A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "World Map",
+    "action": "Explore Map",
+    "ui_state": "Normal",
+    "visible_error": null,
+    "actual_behavior": "World map terrain and buildings are rendered normally.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-5B",
+    "file_name": "edited-errors/IMG-5B.jpg",
+    "base_image_id": "IMG-5A",
+    "is_synthetic": true,
+    "screen": "World Map",
+    "action": "Explore Map",
+    "ui_state": "Rendering Error",
+    "visible_error": "Terrain rendering artifact.",
+    "actual_behavior": "An abnormal burnt texture appears on the map while the rest of the interface remains functional.",
+    "linked_ticket_ids": [
+      "BUG-106"
+    ],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-6A",
+    "file_name": "originals/IMG-6A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "Reward Popup",
+    "action": "Claim Reward",
+    "ui_state": "Success",
+    "visible_error": null,
+    "actual_behavior": "Reward popup displays all reward items correctly.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-6B",
+    "file_name": "edited-errors/IMG-6B.jpg",
+    "base_image_id": "IMG-6A",
+    "is_synthetic": true,
+    "screen": "Reward Popup",
+    "action": "Claim Reward",
+    "ui_state": "Empty Result",
+    "visible_error": "Reward items are not displayed.",
+    "actual_behavior": "The reward popup opens successfully, but the reward content is missing.",
+    "linked_ticket_ids": [
+      "BUG-107"
+    ],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-7A",
+    "file_name": "originals/IMG-7A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "Hero Recruit",
+    "action": "Open Recruit",
+    "ui_state": "Normal",
+    "visible_error": null,
+    "actual_behavior": "Recruit screen is displayed with available draw options.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-7B",
+    "file_name": "originals/IMG-7B.jpg",
+    "base_image_id": "IMG-7A",
+    "is_synthetic": false,
+    "screen": "Hero Recruit",
+    "action": "Single Draw",
+    "ui_state": "Success",
+    "visible_error": null,
+    "actual_behavior": "The recruit completes successfully and the obtained hero is displayed.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-7C",
+    "file_name": "edited-errors/IMG-7C.jpg",
+    "base_image_id": "IMG-7B",
+    "is_synthetic": true,
+    "screen": "Hero Recruit",
+    "action": "Single Draw",
+    "ui_state": "Empty Result",
+    "visible_error": "Reward content is missing.",
+    "actual_behavior": "The recruit animation completes, but the reward panel is empty and no hero is displayed.",
+    "linked_ticket_ids": [
+      "BUG-108"
+    ],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-8A",
+    "file_name": "originals/IMG-8A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "Chapter Missions",
+    "action": "View Progress",
+    "ui_state": "Normal",
+    "visible_error": null,
+    "actual_behavior": "Mission progress is displayed correctly based on the player's completion status.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-8B",
+    "file_name": "edited-errors/IMG-8B.png",
+    "base_image_id": "IMG-8A",
+    "is_synthetic": true,
+    "screen": "Chapter Missions",
+    "action": "View Progress",
+    "ui_state": "Incorrect Progress",
+    "visible_error": "Mission progress is incorrect.",
+    "actual_behavior": "Multiple missions are shown as completed even though the player has not completed them.",
+    "linked_ticket_ids": [
+      "BUG-109"
+    ],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-9A",
+    "file_name": "originals/IMG-9A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "World Map",
+    "action": "March",
+    "ui_state": "Marching",
+    "visible_error": null,
+    "actual_behavior": "The troop is marching toward the destination with a visible movement path.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-9B",
+    "file_name": "edited-errors/IMG-9B.jpg",
+    "base_image_id": "IMG-9A",
+    "is_synthetic": true,
+    "screen": "World Map",
+    "action": "March",
+    "ui_state": "Marching",
+    "visible_error": "Marching unit is not visible.",
+    "actual_behavior": "The march path remains visible but the marching unit is missing.",
+    "linked_ticket_ids": [
+      "BUG-110"
+    ],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-10A",
+    "file_name": "originals/IMG-10A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "Hero Skills",
+    "action": "View Hero",
+    "ui_state": "Normal",
+    "visible_error": null,
+    "actual_behavior": "Hero information and skill icons are displayed correctly.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-10B",
+    "file_name": "edited-errors/IMG-10B.jpg",
+    "base_image_id": "IMG-10A",
+    "is_synthetic": true,
+    "screen": "Hero Skills",
+    "action": "View Hero",
+    "ui_state": "Incorrect Hero",
+    "visible_error": "Incorrect hero is displayed.",
+    "actual_behavior": "A different hero is shown instead of the selected hero.",
+    "linked_ticket_ids": [
+      "BUG-111"
+    ],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-11A",
+    "file_name": "originals/IMG-11A.jpg",
+    "base_image_id": null,
+    "is_synthetic": false,
+    "screen": "Construction",
+    "action": "Upgrade Keep",
+    "ui_state": "Before Upgrade",
+    "visible_resources": {
+      "food": 94503,
+      "wood": 87614,
+      "stone": 85000,
+      "silver": 35400,
+      "gold": 2390
+    },
+    "building": {
+      "name": "Keep",
+      "level": 2
+    },
+    "visible_error": null,
+    "actual_behavior": "The Keep is at Level 2 before the upgrade.",
+    "linked_ticket_ids": [],
+    "labels_verified": true
+  },
+  {
+    "image_id": "IMG-11B",
+    "file_name": "edited-errors/IMG-11B.png",
+    "base_image_id": "IMG-11A",
+    "is_synthetic": true,
+    "screen": "Construction",
+    "action": "Upgrade Keep",
+    "ui_state": "Upgrade Completed",
+    "visible_resources": {
+      "food": 94503,
+      "wood": 87614,
+      "stone": 85000,
+      "silver": 35400,
+      "gold": 2390
+    },
+    "building": {
+      "name": "Keep",
+      "level": 3
+    },
+    "visible_error": null,
+    "actual_behavior": "The Keep is upgraded to Level 3, but the displayed resource values remain unchanged.",
+    "linked_ticket_ids": [
+      "BUG-112"
+    ],
+    "labels_verified": true
+  }
+
+
+]

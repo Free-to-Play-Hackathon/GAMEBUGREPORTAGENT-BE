@@ -1,0 +1,123 @@
+[
+  {
+    "ticket_id": "BUG-101",
+    "title": "Resource values are not displayed on the top resource bar",
+    "feature": "World Map UI",
+    "screen": "World Map",
+    "actual_result": "Resource icons are visible but their numeric values are missing.",
+    "expected_result": "All resource values should be displayed correctly.",
+    "severity": "Medium",
+    "status": "Open"
+  },
+  {
+    "ticket_id": "BUG-102",
+    "title": "Loading screen shows Connection Lost",
+    "feature": "Loading",
+    "screen": "Loading",
+    "actual_result": "Loading is interrupted by a Connection Lost error.",
+    "expected_result": "Loading should complete successfully and enter the next screen.",
+    "severity": "High",
+    "status": "Open"
+  },
+  {
+  "ticket_id": "BUG-103",
+  "title": "Loading screen remains stuck and never enters the game",
+  "feature": "Game Loading",
+  "screen": "Loading",
+  "actual_result": "The loading screen remains stuck at 0% and never enters the game.",
+  "expected_result": "The loading process should complete and enter the game normally.",
+  "severity": "High",
+  "status": "Open"
+  },
+  {
+    "ticket_id": "BUG-104",
+    "title": "Hero model is not rendered on the Hero Detail screen",
+    "feature": "Hero",
+    "screen": "Hero Detail",
+    "actual_result": "Hero information is visible but the hero model is missing.",
+    "expected_result": "The selected hero model should be rendered correctly.",
+    "severity": "Medium",
+    "status": "Open"
+  },
+  {
+    "ticket_id": "BUG-105",
+    "title": "Hero portraits are missing from the Hero List",
+    "feature": "Hero",
+    "screen": "Hero List",
+    "actual_result": "Some hero cards are displayed without character portraits.",
+    "expected_result": "Every owned hero card should display its portrait correctly.",
+    "severity": "Medium",
+    "status": "Open"
+  },
+  {
+    "ticket_id": "BUG-106",
+    "title": "Terrain rendering artifact appears on the World Map",
+    "feature": "World Map",
+    "screen": "World Map",
+    "actual_result": "A corrupted terrain texture appears on the map.",
+    "expected_result": "World map terrain should render normally without graphical artifacts.",
+    "severity": "Medium",
+    "status": "Open"
+  },
+  {
+    "ticket_id": "BUG-107",
+    "title": "Reward popup opens but reward items are missing",
+    "feature": "Reward System",
+    "screen": "Reward Popup",
+    "actual_result": "The reward dialog is displayed, but no reward items are shown.",
+    "expected_result": "All awarded items should be displayed in the reward popup.",
+    "severity": "High",
+    "status": "Open"
+  },
+  {
+    "ticket_id": "BUG-108",
+    "title": "Recruit reward panel is empty after successful draw",
+    "feature": "Hero Recruit",
+    "screen": "Recruit",
+    "actual_result": "The draw finishes successfully but no hero reward is displayed.",
+    "expected_result": "The obtained hero should be displayed in the reward popup.",
+    "severity": "High",
+    "status": "Open"
+  },
+  {
+    "ticket_id": "BUG-109",
+    "title": "Chapter mission progress is displayed incorrectly",
+    "feature": "Chapter Missions",
+    "screen": "Chapter 4",
+    "actual_result": "Mission progress shows completed objectives that have not actually been completed.",
+    "expected_result": "Mission progress should accurately reflect the player's current progress.",
+    "severity": "Medium",
+    "status": "Open"
+  },
+  {
+    "ticket_id": "BUG-110",
+    "title": "March path is displayed but the marching unit is missing",
+    "feature": "World Map March",
+    "screen": "World Map",
+    "actual_result": "The march path is visible but the troop is not rendered.",
+    "expected_result": "The troop should move visibly along the march path.",
+    "severity": "Medium",
+    "status": "Open"
+  },
+  {
+    "ticket_id": "BUG-111",
+    "title": "Incorrect hero is displayed on the Hero Skills screen",
+    "feature": "Hero",
+    "screen": "Hero Skills",
+    "actual_result": "The Hero Skills page displays a different hero than the one selected.",
+    "expected_result": "The selected hero should remain displayed.",
+    "severity": "High",
+    "status": "Open"
+  },
+  {
+  "ticket_id": "BUG-112",
+  "title": "Keep upgrades without consuming resources",
+  "feature": "Building Upgrade",
+  "screen": "Construction",
+  "action": "Upgrade Keep",
+  "actual_result": "The Keep is upgraded successfully, but no resources are deducted.",
+  "expected_result": "The required resources should be deducted when the upgrade is completed.",
+  "severity": "High",
+  "status": "Open"
+}
+]
