@@ -143,6 +143,13 @@ internal sealed class RejectAnalysisCommandHandler : IRequestHandler<RejectAnaly
             return reportUpdateResult;
         }
 
+        var finalizeResult = analysisRun.FinalizeAfterQaDecision(_clock.UtcNow);
+        if (finalizeResult.IsFailure)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return finalizeResult;
+        }
+
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         await QaWorkflowIdempotency.CompleteAsync(
             _idempotencyStore, idempotency.Value, review.Id.Value, _clock, cancellationToken);

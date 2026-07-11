@@ -13,6 +13,10 @@ public static class AnalysisEndpoints
 {
     public static void MapAnalysisEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/api/v1/analyses", async (
+            int? limit, [FromServices] ISender sender, CancellationToken cancellationToken) =>
+            Results.Ok(await sender.Send(new ListAnalysesQuery(limit ?? 30), cancellationToken)));
+
         app.MapPost("/api/v1/bug-reports/{reportId:guid}/analyses", async (
             Guid reportId,
             StartAnalysisRequest body,

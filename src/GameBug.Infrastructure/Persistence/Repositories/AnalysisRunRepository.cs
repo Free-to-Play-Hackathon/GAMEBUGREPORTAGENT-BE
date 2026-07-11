@@ -34,6 +34,15 @@ public class AnalysisRunRepository : IAnalysisRunRepository
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<AnalysisRun>> ListRecentAsync(int limit, CancellationToken cancellationToken)
+    {
+        return await _dbContext.AnalysisRuns
+            .AsNoTracking()
+            .OrderByDescending(x => x.QueuedAt ?? x.StartedAt)
+            .Take(Math.Clamp(limit, 1, 100))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<AnalysisRun?> GetLatestByReportIdAsync(BugReportId reportId, CancellationToken cancellationToken)
     {
         return await _dbContext.AnalysisRuns

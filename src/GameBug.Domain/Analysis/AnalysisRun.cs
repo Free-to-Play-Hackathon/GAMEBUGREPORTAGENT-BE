@@ -363,6 +363,22 @@ public class AnalysisRun
         return Result.Success();
     }
 
+    public Result FinalizeAfterQaDecision(DateTimeOffset completedAt)
+    {
+        if (Status != AnalysisStatus.AwaitingQaReview)
+        {
+            return Result.Failure(new DomainError(
+                "AnalysisRun.InvalidStatusTransition",
+                $"Cannot finalize analysis run when status is {Status}. Expected AwaitingQaReview."));
+        }
+
+        Status = _warnings.Any() ? AnalysisStatus.CompletedWithWarnings : AnalysisStatus.Completed;
+        CompletedAt = completedAt;
+        VersionToken++;
+
+        return Result.Success();
+    }
+
     public Result CompleteWithWarnings(string resultReference, IReadOnlyCollection<AnalysisWarning> warnings, DateTimeOffset completedAt) =>
         Complete(resultReference, warnings.Any() ? warnings : new[] { new AnalysisWarning("ANALYSIS_WARNING", "The analysis completed with warnings.") }, completedAt);
 
