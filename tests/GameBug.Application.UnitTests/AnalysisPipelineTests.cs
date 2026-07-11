@@ -263,6 +263,7 @@ Platform: iOS
             promptLoader,
             reproValidator,
             duplicateDetection,
+            Options.Create(new DuplicateDetectionOptions()),
             unitOfWork,
             provenanceValidator,
             qualityGate,
@@ -289,6 +290,91 @@ Platform: iOS
         savedRepro.Should().NotBeNull();
         savedRepro!.Steps.First().StepType.Should().Be(StepType.SuggestedToVerify);
         savedRepro.Steps.First().SourceId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ProcessAnalysisCommandHandler_ShouldQueueRetryForRetryableProviderFailure()
+    {
+        var runRepository = Substitute.For<IAnalysisRunRepository>();
+        var reportRepository = Substitute.For<IBugReportRepository>();
+        var contextRepository = Substitute.For<IGameContextRepository>();
+        var aiGateway = Substitute.For<IStructuredAiGateway>();
+        var aiRouter = Substitute.For<IAiTaskRouter>();
+        var unitOfWork = Substitute.For<IUnitOfWork>();
+        var duplicateDetection = Substitute.For<IDuplicateDetectionService>();
+        var reportId = BugReportId.CreateUnique();
+        var report = BugReport.Submit(
+            reportId,
+            "Game crashes after opening inventory.",
+            "1.0.0",
+            "Windows",
+            null,
+            null,
+            null,
+            "owner",
+            DateTimeOffset.UtcNow).Value;
+        var run = AnalysisRun.Create(
+            AnalysisRunId.CreateUnique(),
+            reportId,
+            1,
+            "input-hash",
+            "config-hash",
+            "analysis-result-v1").Value;
+        run.Queue(DateTimeOffset.UtcNow);
+
+        reportRepository.GetAsync(reportId, Arg.Any<CancellationToken>()).Returns(report);
+        runRepository.GetAsync(run.Id, Arg.Any<CancellationToken>()).Returns(run);
+        contextRepository.GetGameEntitiesAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<GameEntity>());
+        contextRepository.GetExpectedBehaviorsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExpectedBehavior>());
+        aiRouter.Resolve(Arg.Any<AiTask>(), Arg.Any<AiRoutingContext>())
+            .Returns(new AiRoute(
+                "default",
+                "test-provider",
+                "test-model",
+                "v1",
+                "analysis-result-v1",
+                "routing-v1",
+                30,
+                4096));
+        aiGateway.GenerateStructuredResponseAsync(
+                Arg.Any<AiTask>(),
+                Arg.Any<AiRoute>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<string>(),
+                Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<AiGenerationResult>(
+                new AiProviderException("PROVIDER_TIMEOUT", retryable: true)));
+
+        var handler = new ProcessAnalysisCommandHandler(
+            runRepository,
+            reportRepository,
+            Substitute.For<IObjectStorageReader>(),
+            new ContentSanitizer(),
+            new GenericCrashLogParser(),
+            new EvidenceResolver(),
+            new EventTimelineBuilder(),
+            contextRepository,
+            aiGateway,
+            aiRouter,
+            new GameBug.Infrastructure.AI.PromptLoader(),
+            new ReproValidator(new SeverityPolicy()),
+            duplicateDetection,
+            Options.Create(new DuplicateDetectionOptions()),
+            unitOfWork,
+            NullLogger<ProcessAnalysisCommandHandler>.Instance);
+
+        var result = await handler.Handle(new ProcessAnalysisCommand(run.Id.Value), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("PROVIDER_TIMEOUT");
+        run.Status.Should().Be(AnalysisStatus.Queued);
+        run.FailureCategory.Should().Be("TransientDependency");
+        run.RetryCount.Should().Be(1);
+        run.IsTerminal.Should().BeFalse();
+        await unitOfWork.Received().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -428,6 +514,7 @@ Platform: iOS
             promptLoader,
             reproValidator,
             duplicateDetection,
+            Options.Create(new DuplicateDetectionOptions()),
             unitOfWork,
             provenanceValidator,
             qualityGate,

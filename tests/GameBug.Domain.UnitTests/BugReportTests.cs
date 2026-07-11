@@ -76,6 +76,30 @@ public class BugReportTests
     }
 
     [Fact]
+    public void AddAttachment_ShouldAcceptBrowserOctetStreamForLogFiles()
+    {
+        var report = BugReport.Submit(
+            BugReportId.CreateUnique(),
+            "Valid description for browser log upload.",
+            null, null, null, null, null,
+            "User1",
+            DateTimeOffset.UtcNow).Value;
+
+        var result = report.AddAttachment(
+            AttachmentId.CreateUnique(),
+            "opaque-key",
+            "inventory-crash.log",
+            AttachmentType.Log,
+            "application/octet-stream",
+            1024,
+            "checksum",
+            DateTimeOffset.UtcNow);
+
+        result.IsSuccess.Should().BeTrue();
+        report.Attachments.Should().ContainSingle();
+    }
+
+    [Fact]
     public void AddAttachment_ShouldFail_WhenLimitExceeded()
     {
         // Arrange

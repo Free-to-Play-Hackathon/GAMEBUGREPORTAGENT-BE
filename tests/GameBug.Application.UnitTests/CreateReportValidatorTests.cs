@@ -6,6 +6,28 @@ namespace GameBug.Application.UnitTests;
 
 public sealed class CreateReportValidatorTests
 {
+    [Fact]
+    public void Validator_ShouldAcceptBrowserOctetStreamForLogFiles()
+    {
+        var command = new CreateReportCommand(
+            "A sufficiently detailed crash description.",
+            null,
+            null,
+            null,
+            null,
+            null,
+            "1234567890123456",
+            new[]
+            {
+                new FileAttachmentCommand(
+                    "inventory-crash.log",
+                    "application/octet-stream",
+                    new MemoryStream(new byte[] { 1, 2, 3 }))
+            });
+
+        new CreateReportValidator().Validate(command).IsValid.Should().BeTrue();
+    }
+
     private readonly CreateReportValidator _validator = new();
 
     [Fact]

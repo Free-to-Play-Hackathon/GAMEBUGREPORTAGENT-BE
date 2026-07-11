@@ -5,7 +5,7 @@ namespace GameBug.Application.BugReports.CreateReport;
 public class CreateReportValidator : AbstractValidator<CreateReportCommand>
 {
     private static readonly string[] AllowedExtensions = { ".log", ".txt", ".png", ".jpg", ".jpeg" };
-    private static readonly string[] AllowedMimeTypes = { "text/plain", "image/png", "image/jpeg" };
+    private static readonly string[] AllowedMimeTypes = { "text/plain", "application/octet-stream", "image/png", "image/jpeg" };
 
     public CreateReportValidator()
     {
@@ -47,7 +47,9 @@ public class CreateReportValidator : AbstractValidator<CreateReportCommand>
         {
             ".png" => attachment.ContentType.Equals("image/png", StringComparison.OrdinalIgnoreCase),
             ".jpg" or ".jpeg" => attachment.ContentType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase),
-            ".log" or ".txt" => attachment.ContentType.Equals("text/plain", StringComparison.OrdinalIgnoreCase),
+            ".log" or ".txt" =>
+                attachment.ContentType.Equals("text/plain", StringComparison.OrdinalIgnoreCase) ||
+                attachment.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase),
             _ => false
         };
     }

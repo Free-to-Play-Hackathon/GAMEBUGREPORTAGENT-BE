@@ -49,4 +49,23 @@ public sealed class AnalysisExecutionLock : IAnalysisExecutionLock
                 AND locked_by = {workerId}
             """, cancellationToken);
     }
+
+    public async Task<bool> RenewAsync(
+        AnalysisRunId analysisRunId,
+        string workerId,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var rows = await _dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE analysis_execution_locks
+            SET locked_until = {now.Add(leaseDuration)},
+                updated_at = {now}
+            WHERE analysis_run_id = {analysisRunId.Value}
+                AND locked_by = {workerId}
+                AND locked_until >= {now}
+            """, cancellationToken);
+
+        return rows == 1;
+    }
 }

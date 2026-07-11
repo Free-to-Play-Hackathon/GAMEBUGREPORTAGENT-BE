@@ -122,7 +122,9 @@ public class BugReport
                 extension == ".png" && contentType.Equals("image/png", StringComparison.OrdinalIgnoreCase) ||
                 extension is ".jpg" or ".jpeg" && contentType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase),
             AttachmentType.Log =>
-                extension is ".log" or ".txt" && contentType.Equals("text/plain", StringComparison.OrdinalIgnoreCase),
+                extension is ".log" or ".txt" &&
+                (contentType.Equals("text/plain", StringComparison.OrdinalIgnoreCase) ||
+                 contentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase)),
             _ => false
         };
         if (!metadataIsConsistent)

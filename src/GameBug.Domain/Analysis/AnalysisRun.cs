@@ -155,6 +155,10 @@ public class AnalysisRun
         StartedAt ??= startedAt;
         LastHeartbeatAt = startedAt;
         CurrentAttempt = Math.Max(CurrentAttempt, attempt);
+        NextRetryAt = null;
+        ErrorCode = null;
+        FailureCategory = null;
+        CompletedAt = null;
         Status = AnalysisStatus.Processing;
         Stage ??= AnalysisStage.Sanitizing;
         ProgressPercent = Math.Max(ProgressPercent, StageStartPercent(Stage.Value));
@@ -399,11 +403,37 @@ public class AnalysisRun
         return Result.Success();
     }
 
-    public void ScheduleRetry(DateTimeOffset nextRetryAt)
+    public Result ScheduleRetry(
+        string errorCode,
+        IReadOnlyCollection<AnalysisWarning> warnings,
+        DateTimeOffset nextRetryAt,
+        string failureCategory)
     {
+        if (IsTerminal)
+        {
+            return Result.Failure(new DomainError(
+                "AnalysisRun.TerminalCannotRetry",
+                "A terminal analysis run cannot be retried."));
+        }
+
+        if (string.IsNullOrWhiteSpace(errorCode))
+        {
+            return Result.Failure(new DomainError(
+                "AnalysisRun.ErrorCodeRequired",
+                "Error code is required when scheduling a retry."));
+        }
+
+        _warnings.Clear();
+        _warnings.AddRange(warnings);
+        ErrorCode = errorCode;
+        FailureCategory = failureCategory;
         RetryCount++;
         NextRetryAt = nextRetryAt;
+        CompletedAt = null;
+        Status = AnalysisStatus.Queued;
         VersionToken++;
+
+        return Result.Success();
     }
 
     private static int StageStartPercent(AnalysisStage stage) => stage switch

@@ -52,6 +52,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
     private readonly IPromptLoader _promptLoader;
     private readonly IReproValidator _reproValidator;
     private readonly IDuplicateDetectionService _duplicateDetectionService;
+    private readonly DuplicateDetectionOptions _duplicateOptions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IProvenanceValidator _provenanceValidator;
     private readonly IQualityGate _qualityGate;
@@ -74,6 +75,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         IPromptLoader promptLoader,
         IReproValidator reproValidator,
         IDuplicateDetectionService duplicateDetectionService,
+        IOptions<DuplicateDetectionOptions> duplicateOptions,
         IUnitOfWork unitOfWork,
         IProvenanceValidator provenanceValidator,
         IQualityGate qualityGate,
@@ -95,6 +97,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         _promptLoader = promptLoader;
         _reproValidator = reproValidator;
         _duplicateDetectionService = duplicateDetectionService;
+        _duplicateOptions = duplicateOptions.Value;
         _unitOfWork = unitOfWork;
         _provenanceValidator = provenanceValidator;
         _qualityGate = qualityGate;
@@ -768,7 +771,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             // 7. Search duplicate candidates
             string duplicateInputHash = Hash($"{reproCase.Id}|{evidencePack.Id}|{factsStringForHash}|{reproCase.Title}|{reproCase.ActualResult}");
             var duplicateCheckpoint = await _analysisRunRepository.GetCheckpointAsync(
-                run.Id, AnalysisStage.SearchingDuplicates, "hybrid-v1", duplicateInputHash, cancellationToken);
+                run.Id, AnalysisStage.SearchingDuplicates, _duplicateOptions.RankerVersion, duplicateInputHash, cancellationToken);
 
             if (duplicateCheckpoint != null)
             {
@@ -862,13 +865,33 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         }
         catch (Exception ex)
         {
-            string errorCode = ex is AiProviderException provider ? provider.Code : "ANALYSIS_FAILED";
+            string errorCode = ex switch
+            {
+                AiProviderException provider => provider.Code,
+                IOException => "INFRASTRUCTURE_TRANSIENT",
+                _ => "ANALYSIS_FAILED"
+            };
             string category = ClassifyFailure(ex, errorCode);
             Failures.Add(1, new KeyValuePair<string, object?>("error.code", errorCode));
             _logger.LogError(ex, "Analysis run {RunId} failed with {ErrorCode}", run.Id.Value, errorCode);
             warnings.Add(new AnalysisWarning(errorCode, "The analysis pipeline failed safely."));
             run = await _analysisRunRepository.GetAsync(runId, cancellationToken) ?? run;
-            run.Fail(errorCode, warnings, DateTimeOffset.UtcNow, category);
+            if (category.StartsWith("Transient", StringComparison.Ordinal))
+            {
+                var retry = run.ScheduleRetry(
+                    errorCode,
+                    warnings,
+                    DateTimeOffset.UtcNow.AddSeconds(2),
+                    category);
+                if (retry.IsFailure)
+                {
+                    return retry;
+                }
+            }
+            else
+            {
+                run.Fail(errorCode, warnings, DateTimeOffset.UtcNow, category);
+            }
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             Duration.Record(Stopwatch.GetElapsedTime(startedTimestamp).TotalMilliseconds,
                 new KeyValuePair<string, object?>("outcome", "failed"));
@@ -878,7 +901,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
 
     private static string ClassifyFailure(Exception exception, string errorCode)
     {
-        if (exception is AiProviderException && errorCode is "PROVIDER_TIMEOUT" or "PROVIDER_FAILURE" or "PROVIDER_RATE_LIMITED")
+        if (exception is AiProviderException provider && provider.Retryable)
         {
             return "TransientDependency";
         }

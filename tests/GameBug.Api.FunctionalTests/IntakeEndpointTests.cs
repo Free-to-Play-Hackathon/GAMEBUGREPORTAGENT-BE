@@ -135,4 +135,19 @@ public sealed class IntakeEndpointTests : IClassFixture<WebApplicationFactory<Pr
             .Select(parameter => parameter.GetProperty("name").GetString())
             .Should().Contain("Idempotency-Key");
     }
+
+    [Fact]
+    public async Task OpenApi_ShouldDescribeHistoricalTicketImportIdempotencyHeader()
+    {
+        using var response = await _client.GetAsync("/swagger/v1/swagger.json");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var operation = document.RootElement
+            .GetProperty("paths")
+            .GetProperty("/api/v1/admin/historical-tickets/import")
+            .GetProperty("post");
+
+        operation.GetProperty("parameters").EnumerateArray()
+            .Select(parameter => parameter.GetProperty("name").GetString())
+            .Should().Contain("Idempotency-Key");
+    }
 }

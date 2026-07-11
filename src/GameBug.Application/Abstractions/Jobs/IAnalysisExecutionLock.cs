@@ -10,6 +10,12 @@ public interface IAnalysisExecutionLock
         TimeSpan leaseDuration,
         CancellationToken cancellationToken);
 
+    Task<bool> RenewAsync(
+        AnalysisRunId analysisRunId,
+        string workerId,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken);
+
     Task ReleaseAsync(
         AnalysisRunId analysisRunId,
         string workerId,

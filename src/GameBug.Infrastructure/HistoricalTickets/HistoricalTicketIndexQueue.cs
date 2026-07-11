@@ -34,7 +34,7 @@ public sealed class HistoricalTicketIndexQueue : IHistoricalTicketIndexQueue
     {
         var now = DateTimeOffset.UtcNow;
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
-        var candidate = await _dbContext.HistoricalTicketIndexJobs
+        var candidates = await _dbContext.HistoricalTicketIndexJobs
             .FromSqlInterpolated($"""
                 SELECT *
                 FROM historical_ticket_index_jobs
@@ -44,7 +44,8 @@ public sealed class HistoricalTicketIndexQueue : IHistoricalTicketIndexQueue
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
                 """)
-            .FirstOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
+        var candidate = candidates.SingleOrDefault();
 
         if (candidate is null)
         {

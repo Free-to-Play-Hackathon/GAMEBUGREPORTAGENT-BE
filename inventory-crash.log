@@ -1,0 +1,6 @@
+BuildVersion: 1.2.3
+Platform: Windows
+2026-07-11T10:20:00Z [INFO] Screen=Inventory Action=OpenInventory
+2026-07-11T10:20:01Z Exception: NullReferenceException: Inventory data was null
+at Game.Inventory.InventoryController.Open()
+at Game.UI.InventoryButton.OnClick()

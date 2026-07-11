@@ -1,5 +1,6 @@
 using GameBug.Domain.Duplicates;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace GameBug.Infrastructure.Persistence.Configurations;
@@ -31,12 +32,19 @@ public sealed class HistoricalTicketConfiguration : IEntityTypeConfiguration<His
         builder.Property(x => x.ActualResult).HasColumnName("actual_result");
         builder.Property(x => x.SearchText).HasColumnName("search_text").IsRequired();
         builder.Property(x => x.SearchTextHash).HasColumnName("search_text_hash").HasMaxLength(128).IsRequired();
-        builder.Property(x => x.Embedding)
+        var embeddingProperty = builder.Property(x => x.Embedding)
             .HasColumnName("embedding")
             .HasColumnType("vector")
             .HasConversion(
                 v => v == null ? null : new Pgvector.Vector(v),
                 v => v == null ? null : v.ToArray());
+        embeddingProperty.Metadata.SetValueComparer(new ValueComparer<float[]?>(
+            (left, right) => ReferenceEquals(left, right) ||
+                             (left != null && right != null && left.SequenceEqual(right)),
+            value => value == null
+                ? 0
+                : value.Aggregate(0, (hash, item) => HashCode.Combine(hash, item)),
+            value => value == null ? null : value.ToArray()));
         builder.Property(x => x.EmbeddingProvider).HasColumnName("embedding_provider").HasMaxLength(80);
         builder.Property(x => x.EmbeddingModel).HasColumnName("embedding_model").HasMaxLength(120);
         builder.Property(x => x.EmbeddingVersion).HasColumnName("embedding_version").HasMaxLength(80);
@@ -50,6 +58,6 @@ public sealed class HistoricalTicketConfiguration : IEntityTypeConfiguration<His
         builder.HasIndex(x => new { x.ProjectId, x.Source, x.ExternalId }).IsUnique();
         builder.HasIndex(x => x.StackSignature);
         builder.HasIndex(x => new { x.ProjectId, x.Status });
-        builder.HasIndex(x => new { x.EmbeddingVersion, x.IndexedAt });
+        builder.HasIndex(x => new { x.EmbeddingVersion, x.EmbeddingDimension, x.IndexedAt });
     }
 }

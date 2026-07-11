@@ -75,7 +75,9 @@ Safe recovery path:
 - Start or restart `GameBug.Worker`.
 - If an outbox row is still pending, the dispatcher will enqueue it.
 - If a job is processing but its lease expires, another worker can claim it.
-- If a duplicate job exists for a terminal run, the processor returns success without creating another result.
+- Enqueue is idempotent for `(queue_name, analysis_run_id, expected_version)`; stale-version jobs are completed without execution.
+- Active workers renew both the queue lease and per-analysis execution lock. A lost lease cancels local processing and schedules a bounded retry.
+- Retryable provider/infrastructure failures return the run to `Queued`; exhausting `Jobs:MaxAttempts` produces `MAX_ATTEMPTS_EXCEEDED`.
 - Do not manually edit raw provider output or report payloads into queue tables.
 
 ---
