@@ -86,4 +86,28 @@ public sealed class AnalysisDomainTests
         badRank.IsFailure.Should().BeTrue();
         badScore.IsFailure.Should().BeTrue();
     }
+
+    [Fact]
+    public void ScheduleRetry_ShouldReturnProcessingRunToQueuedWithoutLosingStage()
+    {
+        var run = AnalysisRun.Create(
+            AnalysisRunId.CreateUnique(), BugReportId.CreateUnique(), 1, "input", "config", "schema").Value;
+        run.Queue(DateTimeOffset.UtcNow);
+        run.StartProcessing("sanitizer", "parser", "routing", DateTimeOffset.UtcNow);
+        run.TransitionStage(AnalysisStage.ExtractingEvidence);
+
+        var result = run.ScheduleRetry(
+            "PROVIDER_TIMEOUT",
+            new[] { new AnalysisWarning("PROVIDER_TIMEOUT", "Retryable provider failure.") },
+            DateTimeOffset.UtcNow.AddSeconds(2),
+            "TransientDependency");
+
+        result.IsSuccess.Should().BeTrue();
+        run.Status.Should().Be(AnalysisStatus.Queued);
+        run.Stage.Should().Be(AnalysisStage.ExtractingEvidence);
+        run.RetryCount.Should().Be(1);
+        run.ErrorCode.Should().Be("PROVIDER_TIMEOUT");
+        run.FailureCategory.Should().Be("TransientDependency");
+        run.IsTerminal.Should().BeFalse();
+    }
 }

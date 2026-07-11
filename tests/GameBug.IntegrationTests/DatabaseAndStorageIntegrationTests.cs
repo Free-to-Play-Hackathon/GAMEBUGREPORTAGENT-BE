@@ -10,9 +10,12 @@ using DotNet.Testcontainers.Containers;
 using FluentAssertions;
 using GameBug.Domain.Analysis;
 using GameBug.Domain.BugReports;
+using GameBug.Domain.Duplicates;
 using GameBug.Infrastructure.Files;
 using GameBug.Application.Abstractions.Files;
 using GameBug.Infrastructure.Persistence;
+using GameBug.Infrastructure.Jobs;
+using GameBug.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Minio;
 using Minio.DataModel.Args;
@@ -56,7 +59,7 @@ public sealed class DatabaseAndStorageIntegrationTests : IAsyncLifetime
         // Arrange
         var connectionString = _postgresContainer.GetConnectionString();
         var options = new DbContextOptionsBuilder<GameBugDbContext>()
-            .UseNpgsql(connectionString)
+            .UseNpgsql(connectionString, npgsql => npgsql.UseVector())
             .Options;
 
         using var context = new GameBugDbContext(options);
@@ -118,7 +121,7 @@ public sealed class DatabaseAndStorageIntegrationTests : IAsyncLifetime
     public async Task Database_ShouldPersistNewBugReportWithInitialVersion()
     {
         var options = new DbContextOptionsBuilder<GameBugDbContext>()
-            .UseNpgsql(_postgresContainer.GetConnectionString())
+            .UseNpgsql(_postgresContainer.GetConnectionString(), npgsql => npgsql.UseVector())
             .Options;
 
         await using var context = new GameBugDbContext(options);
@@ -195,4 +198,109 @@ public sealed class DatabaseAndStorageIntegrationTests : IAsyncLifetime
         // Assert
         resultText.Should().Be(testContent);
     }
+
+    [Fact]
+    public async Task AnalysisQueue_ShouldEnqueueIdempotentlyAndRenewBothLeases()
+    {
+        var options = new DbContextOptionsBuilder<GameBugDbContext>()
+            .UseNpgsql(_postgresContainer.GetConnectionString(), npgsql => npgsql.UseVector())
+            .Options;
+        await using var context = new GameBugDbContext(options);
+        await context.Database.MigrateAsync();
+
+        var jobOptions = Microsoft.Extensions.Options.Options.Create(new JobOptions
+        {
+            QueueName = "analysis-test",
+            LeaseDurationSeconds = 30,
+            MaxAttempts = 3
+        });
+        var queue = new DurableBackgroundJobQueue(context, jobOptions);
+        var runId = AnalysisRunId.CreateUnique();
+
+        await queue.EnqueueProcessAnalysisAsync(runId, 1, CancellationToken.None);
+        await queue.EnqueueProcessAnalysisAsync(runId, 1, CancellationToken.None);
+
+        (await context.AnalysisJobs.CountAsync(job =>
+            job.QueueName == "analysis-test" &&
+            job.AnalysisRunId == runId &&
+            job.ExpectedVersion == 1)).Should().Be(1);
+
+        var claimed = await queue.ClaimNextAsync("worker-test", CancellationToken.None);
+        claimed.Should().NotBeNull();
+        var executionLock = new AnalysisExecutionLock(context);
+        (await executionLock.TryAcquireAsync(
+            runId,
+            "worker-test",
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None)).Should().BeTrue();
+        (await queue.RenewLeaseAsync(
+            claimed!.JobId,
+            "worker-test",
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None)).Should().BeTrue();
+        (await executionLock.RenewAsync(
+            runId,
+            "worker-test",
+            TimeSpan.FromSeconds(30),
+            CancellationToken.None)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task HistoricalTicketRepository_ShouldQueryVectorCandidatesWithVectorParameter()
+    {
+        var options = new DbContextOptionsBuilder<GameBugDbContext>()
+            .UseNpgsql(_postgresContainer.GetConnectionString(), npgsql => npgsql.UseVector())
+            .Options;
+        await using var context = new GameBugDbContext(options);
+        await context.Database.MigrateAsync();
+
+        var projectId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var nearest = CreateHistoricalTicket(projectId, "BUG-NEAR", now);
+        nearest.SetEmbedding(new[] { 1f, 0f }, "test", "test-model", "embedding-v1", 2, now);
+        var farther = CreateHistoricalTicket(projectId, "BUG-FAR", now);
+        farther.SetEmbedding(new[] { 0f, 1f }, "test", "test-model", "embedding-v1", 2, now);
+
+        context.HistoricalTickets.AddRange(nearest, farther);
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var repository = new HistoricalTicketRepository(context);
+        var candidates = await repository.GetVectorCandidatesAsync(
+            projectId,
+            new[] { 1f, 0f },
+            "embedding-v1",
+            2,
+            2,
+            CancellationToken.None);
+
+        candidates.Select(ticket => ticket.ExternalId)
+            .Should().Equal("BUG-NEAR", "BUG-FAR");
+    }
+
+    private static HistoricalTicket CreateHistoricalTicket(Guid projectId, string externalId, DateTimeOffset now) =>
+        HistoricalTicket.Create(
+            Guid.NewGuid(),
+            projectId,
+            "integration-test",
+            externalId,
+            "Inventory crash",
+            "Opening inventory crashes the game.",
+            "Open",
+            "High",
+            "1.0.0",
+            "1.0.0",
+            new[] { "Windows" },
+            "NullReferenceException",
+            "Inventory data was null.",
+            new[] { "Inventory" },
+            "Game crashes",
+            "Open Inventory",
+            "Inventory",
+            "Game crashes with NullReferenceException",
+            $"inventory crash {externalId}",
+            $"hash-{externalId}",
+            "v1",
+            now,
+            now).Value;
 }

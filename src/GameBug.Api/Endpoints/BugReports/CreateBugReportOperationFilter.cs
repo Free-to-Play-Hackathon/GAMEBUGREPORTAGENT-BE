@@ -17,7 +17,11 @@ public sealed class CreateBugReportOperationFilter : IOperationFilter
         bool isCreateReport = string.Equals(relativePath, "api/v1/bug-reports", StringComparison.OrdinalIgnoreCase);
         bool isStartAnalysis = relativePath.StartsWith("api/v1/bug-reports/", StringComparison.OrdinalIgnoreCase) &&
             relativePath.EndsWith("/analyses", StringComparison.OrdinalIgnoreCase);
-        if (!isCreateReport && !isStartAnalysis)
+        bool isHistoricalTicketImport = string.Equals(
+            relativePath,
+            "api/v1/admin/historical-tickets/import",
+            StringComparison.OrdinalIgnoreCase);
+        if (!isCreateReport && !isStartAnalysis && !isHistoricalTicketImport)
         {
             return;
         }

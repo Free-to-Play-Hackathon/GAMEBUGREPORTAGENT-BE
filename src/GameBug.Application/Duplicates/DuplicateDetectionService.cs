@@ -62,6 +62,7 @@ public sealed class DuplicateDetectionService : IDuplicateDetectionService
             document.ProjectId,
             embedding.Vector,
             embedding.Version,
+            embedding.Dimension,
             _options.CandidateLimitPerChannel,
             cancellationToken);
         AddChannel(channelRows, vector, Channel.Vector, ticket => Cosine(embedding.Vector, ticket.Embedding));

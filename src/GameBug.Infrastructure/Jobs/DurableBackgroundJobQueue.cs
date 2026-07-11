@@ -26,17 +26,22 @@ public sealed class DurableBackgroundJobQueue : IBackgroundJobQueue
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        await _dbContext.AnalysisJobs.AddAsync(
-            new AnalysisJob(Guid.NewGuid(), _options.QueueName, analysisRunId, expectedVersion, now, now),
-            cancellationToken);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO analysis_jobs
+                (id, queue_name, analysis_run_id, expected_version, status, attempt_count,
+                 available_at, locked_by, locked_until, created_at, completed_at, last_error_code)
+            VALUES
+                ({Guid.NewGuid()}, {_options.QueueName}, {analysisRunId.Value}, {expectedVersion}, 'Queued', 0,
+                 {now}, NULL, NULL, {now}, NULL, NULL)
+            ON CONFLICT (queue_name, analysis_run_id, expected_version) DO NOTHING
+            """, cancellationToken);
     }
 
     public async Task<ClaimedAnalysisJob?> ClaimNextAsync(string workerId, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
-        var candidate = await _dbContext.AnalysisJobs
+        var candidates = await _dbContext.AnalysisJobs
             .FromSqlInterpolated($"""
                 SELECT *
                 FROM analysis_jobs
@@ -47,7 +52,8 @@ public sealed class DurableBackgroundJobQueue : IBackgroundJobQueue
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
                 """)
-            .FirstOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
+        var candidate = candidates.SingleOrDefault();
 
         if (candidate is null)
         {
@@ -72,12 +78,12 @@ public sealed class DurableBackgroundJobQueue : IBackgroundJobQueue
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task RetryAsync(Guid jobId, string errorCode, CancellationToken cancellationToken)
+    public async Task<bool> RetryAsync(Guid jobId, string errorCode, CancellationToken cancellationToken)
     {
         var job = await _dbContext.AnalysisJobs.FirstOrDefaultAsync(x => x.Id == jobId, cancellationToken);
         if (job is null)
         {
-            return;
+            return false;
         }
 
         if (job.AttemptCount >= _options.MaxAttempts)
@@ -96,5 +102,25 @@ public sealed class DurableBackgroundJobQueue : IBackgroundJobQueue
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+        return job.Status == "Queued";
+    }
+
+    public async Task<bool> RenewLeaseAsync(
+        Guid jobId,
+        string workerId,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var rows = await _dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE analysis_jobs
+            SET locked_until = {now.Add(leaseDuration)}
+            WHERE id = {jobId}
+                AND status = 'Processing'
+                AND locked_by = {workerId}
+                AND locked_until >= {now}
+            """, cancellationToken);
+
+        return rows == 1;
     }
 }

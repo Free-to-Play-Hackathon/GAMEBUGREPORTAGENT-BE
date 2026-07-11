@@ -2,6 +2,7 @@ using FluentAssertions;
 using GameBug.Domain.BugReports;
 using GameBug.Infrastructure.Persistence;
 using GameBug.Domain.Analysis;
+using GameBug.Domain.Duplicates;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -61,5 +62,41 @@ public sealed class PersistenceModelTests
             .Where(e => e.GetTableName() != "historical_tickets" && e.GetTableName() != "embedding_cache")
             .SelectMany(entity => entity.GetProperties())
             .Should().NotContain(property => property.GetColumnType() == "vector");
+    }
+
+    [Fact]
+    public void PhaseThreeAndFourModel_ShouldEnforceJobAndEmbeddingIdentity()
+    {
+        using var context = CreateContext();
+        var job = context.Model.FindEntityType(typeof(AnalysisJob));
+        var ticket = context.Model.FindEntityType(typeof(HistoricalTicket));
+        var cache = context.Model.FindEntityType(typeof(EmbeddingCacheEntry));
+
+        job.Should().NotBeNull();
+        job!.GetIndexes().Should().Contain(index =>
+            index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[]
+            {
+                nameof(AnalysisJob.QueueName),
+                nameof(AnalysisJob.AnalysisRunId),
+                nameof(AnalysisJob.ExpectedVersion)
+            }));
+        ticket.Should().NotBeNull();
+        ticket!.GetIndexes().Should().Contain(index =>
+            index.Properties.Select(property => property.Name).SequenceEqual(new[]
+            {
+                nameof(HistoricalTicket.EmbeddingVersion),
+                nameof(HistoricalTicket.EmbeddingDimension),
+                nameof(HistoricalTicket.IndexedAt)
+            }));
+        cache.Should().NotBeNull();
+        cache!.GetIndexes().Should().Contain(index =>
+            index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(new[]
+            {
+                nameof(EmbeddingCacheEntry.ContentHash),
+                nameof(EmbeddingCacheEntry.Provider),
+                nameof(EmbeddingCacheEntry.Model),
+                nameof(EmbeddingCacheEntry.EmbeddingVersion),
+                nameof(EmbeddingCacheEntry.Dimension)
+            }));
     }
 }

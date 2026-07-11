@@ -4,7 +4,7 @@ using GameBug.Application.Duplicates;
 using GameBug.Domain.Analysis;
 using GameBug.Domain.Duplicates;
 using Microsoft.EntityFrameworkCore;
-using Pgvector.EntityFrameworkCore;
+using Pgvector;
 
 namespace GameBug.Infrastructure.Persistence.Repositories;
 
@@ -70,15 +70,27 @@ public sealed class HistoricalTicketRepository : IHistoricalTicketRepository
         return candidates;
     }
 
-    public async Task<IReadOnlyList<HistoricalTicket>> GetVectorCandidatesAsync(Guid projectId, float[] queryVector, string embeddingVersion, int limit, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<HistoricalTicket>> GetVectorCandidatesAsync(
+        Guid projectId,
+        float[] queryVector,
+        string embeddingVersion,
+        int embeddingDimension,
+        int limit,
+        CancellationToken cancellationToken)
     {
-        var candidates = await _dbContext.HistoricalTickets
-            .Where(t => t.ProjectId == projectId && t.EmbeddingVersion == embeddingVersion && t.Embedding != null)
-            .OrderBy(t => t.Embedding!.CosineDistance(queryVector))
-            .Take(limit)
+        var vector = new Vector(queryVector);
+        return await _dbContext.HistoricalTickets
+            .FromSqlInterpolated($"""
+                SELECT *
+                FROM historical_tickets
+                WHERE project_id = {projectId}
+                  AND embedding_version = {embeddingVersion}
+                  AND embedding_dimension = {embeddingDimension}
+                  AND embedding IS NOT NULL
+                ORDER BY embedding <=> {vector}
+                LIMIT {limit}
+                """)
             .ToListAsync(cancellationToken);
-
-        return candidates;
     }
 
     public async Task SaveHistoricalTicketAsync(HistoricalTicket ticket, CancellationToken cancellationToken) =>

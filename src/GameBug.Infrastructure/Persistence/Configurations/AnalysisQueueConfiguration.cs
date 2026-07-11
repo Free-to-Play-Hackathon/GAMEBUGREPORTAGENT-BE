@@ -57,7 +57,7 @@ public sealed class AnalysisJobConfiguration : IEntityTypeConfiguration<Analysis
         builder.Property(x => x.LastErrorCode).HasColumnName("last_error_code").HasMaxLength(80);
 
         builder.HasIndex(x => new { x.QueueName, x.Status, x.AvailableAt });
-        builder.HasIndex(x => x.AnalysisRunId);
+        builder.HasIndex(x => new { x.QueueName, x.AnalysisRunId, x.ExpectedVersion }).IsUnique();
         builder.ToTable(table => table.HasCheckConstraint("CK_analysis_jobs_attempt", "attempt_count >= 0"));
     }
 }
