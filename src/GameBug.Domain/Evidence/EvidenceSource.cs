@@ -5,7 +5,8 @@ public enum EvidenceSourceType
     PlayerReport,
     Log,
     Metadata,
-    GameCatalog
+    GameCatalog,
+    Screenshot
 }
 
 public enum TrustLevel

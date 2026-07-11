@@ -1574,6 +1574,67 @@ namespace GameBug.Infrastructure.Persistence.Migrations
                     b.ToTable("ticket_filing_requests", (string)null);
                 });
 
+            modelBuilder.Entity("GameBug.Domain.Trust.TrustReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AnalysisRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_run_id");
+
+                    b.Property<string>("AllowedActions")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("allowed_actions_json");
+
+                    b.Property<DateTimeOffset>("EvaluatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("evaluated_at");
+
+                    b.Property<string>("InputHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("input_hash");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("PolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("policy_version");
+
+                    b.Property<Guid>("TargetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("target_type");
+
+                    b.Property<string>("Violations")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("violations_json");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetType", "TargetId", "PolicyVersion", "InputHash")
+                        .IsUnique()
+                        .HasDatabaseName("IX_trust_reports_target_policy_hash");
+
+                    b.ToTable("trust_reports", (string)null);
+                });
+
             modelBuilder.Entity("GameBug.Domain.ReproCases.ReproCase", b =>
                 {
                     b.Property<Guid>("Id")

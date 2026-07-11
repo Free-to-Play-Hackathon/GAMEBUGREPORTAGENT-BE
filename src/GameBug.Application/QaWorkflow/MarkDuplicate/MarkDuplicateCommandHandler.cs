@@ -5,6 +5,7 @@ using GameBug.Application.Abstractions.Time;
 using GameBug.Application.QaWorkflow;
 using GameBug.Domain.QaWorkflow;
 using GameBug.Domain.SharedKernel;
+using GameBug.Domain.Trust;
 using MediatR;
 
 namespace GameBug.Application.QaWorkflow.MarkDuplicate;
@@ -19,6 +20,7 @@ internal sealed class MarkDuplicateCommandHandler : IRequestHandler<MarkDuplicat
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
     private readonly IAuditWriter _auditWriter;
+    private readonly ITrustReportRepository _trustReportRepository;
 
     public MarkDuplicateCommandHandler(
         IQaReviewRepository reviewRepository,
@@ -28,7 +30,8 @@ internal sealed class MarkDuplicateCommandHandler : IRequestHandler<MarkDuplicat
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
         IClock clock,
-        IAuditWriter auditWriter)
+        IAuditWriter auditWriter,
+        ITrustReportRepository trustReportRepository)
     {
         _reviewRepository = reviewRepository;
         _analysisRunRepository = analysisRunRepository;
@@ -38,6 +41,7 @@ internal sealed class MarkDuplicateCommandHandler : IRequestHandler<MarkDuplicat
         _currentUser = currentUser;
         _clock = clock;
         _auditWriter = auditWriter;
+        _trustReportRepository = trustReportRepository;
     }
 
     public async Task<Result> Handle(MarkDuplicateCommand request, CancellationToken cancellationToken)
@@ -67,6 +71,46 @@ internal sealed class MarkDuplicateCommandHandler : IRequestHandler<MarkDuplicat
         }
 
         var review = await _reviewRepository.GetByAnalysisRunIdAsync(new Domain.Analysis.AnalysisRunId(request.AnalysisRunId), cancellationToken);
+        if (review == null)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure(new DomainError("DUPLICATE_GATE_REQUIRED", "QA Review not found."));
+        }
+
+        TrustReport? trustReport = null;
+        var latestRevision = review.Revisions.OrderByDescending(r => r.RevisionNumber).FirstOrDefault();
+        if (latestRevision != null)
+        {
+            trustReport = await _trustReportRepository.GetLatestForTargetAsync(
+                latestRevision.Id.Value,
+                TrustTargetType.ReproRevision,
+                cancellationToken);
+        }
+        else
+        {
+            var reproCase = await _analysisRunRepository.GetReproCaseAsync(review.AnalysisRunId, cancellationToken);
+            if (reproCase != null)
+            {
+                trustReport = await _trustReportRepository.GetLatestForTargetAsync(
+                    reproCase.Id,
+                    TrustTargetType.ReproCase,
+                    cancellationToken);
+            }
+        }
+
+        if (trustReport == null)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure(new DomainError("TRUST_REPORT_NOT_FOUND", "Trust report not found for the current review target."));
+        }
+
+        if (!trustReport.AllowedActions.Contains(AllowedQaAction.MarkDuplicate))
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure(new DomainError("TRUST_GATE_VIOLATION", $"Action MarkDuplicate is not allowed based on the trust report outcome: {trustReport.Outcome}"));
+        }
+        
+
 
         if (review == null)
         {

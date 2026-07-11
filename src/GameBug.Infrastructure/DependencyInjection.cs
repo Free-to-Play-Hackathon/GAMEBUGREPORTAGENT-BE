@@ -51,6 +51,7 @@ public static class DependencyInjection
         services.AddScoped<IAnalysisRunRepository, AnalysisRunRepository>();
         services.AddScoped<IHistoricalTicketRepository, HistoricalTicketRepository>();
         services.AddScoped<IQaReviewRepository, QaReviewRepository>();
+        services.AddScoped<ITrustReportRepository, TrustReportRepository>();
         services.AddScoped<ITicketFilingGateway, InternalTicketFilingGateway>();
         services.AddScoped<IGameContextRepository, GameContextRepository>();
         services.AddScoped<IAnalysisOutboxStore, AnalysisOutboxStore>();

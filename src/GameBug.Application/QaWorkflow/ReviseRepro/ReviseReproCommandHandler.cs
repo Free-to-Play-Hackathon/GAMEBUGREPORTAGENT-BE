@@ -2,12 +2,15 @@ using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Abstractions.Security;
 using GameBug.Application.Abstractions.Observability;
 using GameBug.Application.Abstractions.Time;
+using GameBug.Application.Abstractions.Trust;
 using GameBug.Application.QaWorkflow;
 using GameBug.Application.ReproCases;
 using GameBug.Domain.Analysis;
 using GameBug.Domain.BugReports;
 using GameBug.Domain.QaWorkflow;
 using GameBug.Domain.SharedKernel;
+using GameBug.Domain.Trust;
+using GameBug.Domain.Evidence;
 using MediatR;
 
 namespace GameBug.Application.QaWorkflow.ReviseRepro;
@@ -23,6 +26,9 @@ internal sealed class ReviseReproCommandHandler : IRequestHandler<ReviseReproCom
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
     private readonly IAuditWriter _auditWriter;
+    private readonly IProvenanceValidator _provenanceValidator;
+    private readonly IQualityGate _qualityGate;
+    private readonly ITrustReportRepository _trustReportRepository;
 
     public ReviseReproCommandHandler(
         IQaReviewRepository reviewRepository,
@@ -33,7 +39,10 @@ internal sealed class ReviseReproCommandHandler : IRequestHandler<ReviseReproCom
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
         IClock clock,
-        IAuditWriter auditWriter)
+        IAuditWriter auditWriter,
+        IProvenanceValidator provenanceValidator,
+        IQualityGate qualityGate,
+        ITrustReportRepository trustReportRepository)
     {
         _reviewRepository = reviewRepository;
         _analysisRunRepository = analysisRunRepository;
@@ -44,6 +53,9 @@ internal sealed class ReviseReproCommandHandler : IRequestHandler<ReviseReproCom
         _currentUser = currentUser;
         _clock = clock;
         _auditWriter = auditWriter;
+        _provenanceValidator = provenanceValidator;
+        _qualityGate = qualityGate;
+        _trustReportRepository = trustReportRepository;
     }
 
     public async Task<Result> Handle(ReviseReproCommand request, CancellationToken cancellationToken)
@@ -101,10 +113,10 @@ internal sealed class ReviseReproCommandHandler : IRequestHandler<ReviseReproCom
             request.SerializedRepro,
             evidencePack?.Facts.ToList() ?? new List<Domain.Evidence.EvidenceFact>(),
             report.Description);
-        if (validated.IsFailure)
+        if (validated.ReproCaseResult.IsFailure)
         {
             await ReleaseReservationAsync(idempotency.Value, cancellationToken);
-            return Result.Failure(validated.Error);
+            return Result.Failure(validated.ReproCaseResult.Error);
         }
 
         var generatedRepro = await _analysisRunRepository.GetReproCaseAsync(analysisRunId, cancellationToken);
@@ -127,6 +139,28 @@ internal sealed class ReviseReproCommandHandler : IRequestHandler<ReviseReproCom
             await ReleaseReservationAsync(idempotency.Value, cancellationToken);
             return addRevisionResult;
         }
+
+        var latestRevision = review.Revisions.OrderByDescending(r => r.RevisionNumber).First();
+        var evPack = evidencePack ?? new EvidencePack(Guid.NewGuid(), analysisRunId, new List<EvidenceFact>(), new List<EventTimelineEntry>());
+
+        var provenanceViolations = _provenanceValidator.Validate(analysisRunId, evPack, validated.ReproCaseResult.Value, validated.Warnings);
+        var trustReportResult = _qualityGate.Evaluate(
+            analysisRunId,
+            latestRevision.Id.Value,
+            TrustTargetType.ReproRevision,
+            provenanceViolations,
+            evPack,
+            validated.ReproCaseResult.Value,
+            duplicateSearchComplete: true,
+            requestHash);
+
+        if (trustReportResult.IsFailure)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure(trustReportResult.Error);
+        }
+
+        await _trustReportRepository.AddAsync(trustReportResult.Value, cancellationToken);
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         await QaWorkflowIdempotency.CompleteAsync(

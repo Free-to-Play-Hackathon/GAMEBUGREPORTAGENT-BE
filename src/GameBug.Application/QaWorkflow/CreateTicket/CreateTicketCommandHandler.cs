@@ -6,6 +6,7 @@ using GameBug.Application.Abstractions.Time;
 using GameBug.Application.QaWorkflow;
 using GameBug.Domain.QaWorkflow;
 using GameBug.Domain.SharedKernel;
+using GameBug.Domain.Trust;
 using MediatR;
 using System.Security.Cryptography;
 using System.Text;
@@ -23,6 +24,7 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
     private readonly ICurrentUser _currentUser;
     private readonly IClock _clock;
     private readonly IAuditWriter _auditWriter;
+    private readonly ITrustReportRepository _trustReportRepository;
 
     public CreateTicketCommandHandler(
         IQaReviewRepository reviewRepository,
@@ -33,7 +35,8 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
         IClock clock,
-        IAuditWriter auditWriter)
+        IAuditWriter auditWriter,
+        ITrustReportRepository trustReportRepository)
     {
         _reviewRepository = reviewRepository;
         _analysisRunRepository = analysisRunRepository;
@@ -44,6 +47,7 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
         _currentUser = currentUser;
         _clock = clock;
         _auditWriter = auditWriter;
+        _trustReportRepository = trustReportRepository;
     }
 
     public async Task<Result> Handle(CreateTicketCommand request, CancellationToken cancellationToken)
@@ -88,6 +92,30 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
         }
 
         var finalRevision = review.Revisions.FirstOrDefault(revision => revision.Id.Value == request.FinalRevisionId);
+        if (finalRevision is null)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure(new DomainError("CreateTicket.FinalRevisionRequired", "Final revision must belong to the QA review."));
+        }
+
+        var trustReport = await _trustReportRepository.GetLatestForTargetAsync(
+            finalRevision.Id.Value,
+            TrustTargetType.ReproRevision,
+            cancellationToken);
+
+        if (trustReport == null)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure(new DomainError("TRUST_REPORT_NOT_FOUND", "Trust report not found for the selected revision."));
+        }
+
+        if (!trustReport.AllowedActions.Contains(AllowedQaAction.EditAndCreateNew))
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure(new DomainError("TRUST_GATE_VIOLATION", $"Action CreateTicket is not allowed based on the trust report outcome: {trustReport.Outcome}"));
+        }
+        
+
         if (finalRevision is null)
         {
             await ReleaseReservationAsync(idempotency.Value, cancellationToken);

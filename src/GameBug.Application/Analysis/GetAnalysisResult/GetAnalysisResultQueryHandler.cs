@@ -4,6 +4,7 @@ using GameBug.Application.Duplicates;
 using GameBug.Domain.Analysis;
 using GameBug.Domain.Duplicates;
 using GameBug.Domain.SharedKernel;
+using GameBug.Domain.Trust;
 using MediatR;
 using Microsoft.Extensions.Options;
 
@@ -13,6 +14,7 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
 {
     private readonly IAnalysisRunRepository _analysisRunRepository;
     private readonly IHistoricalTicketRepository _historicalTickets;
+    private readonly ITrustReportRepository _trustReports;
     private readonly IBugReportRepository _reports;
     private readonly ICurrentUser _currentUser;
     private readonly EmbeddingOptions _embeddingOptions;
@@ -21,6 +23,7 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
     public GetAnalysisResultQueryHandler(
         IAnalysisRunRepository analysisRunRepository,
         IHistoricalTicketRepository historicalTickets,
+        ITrustReportRepository trustReports,
         IBugReportRepository reports,
         ICurrentUser currentUser,
         IOptions<EmbeddingOptions> embeddingOptions,
@@ -28,6 +31,7 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
     {
         _analysisRunRepository = analysisRunRepository;
         _historicalTickets = historicalTickets;
+        _trustReports = trustReports;
         _reports = reports;
         _currentUser = currentUser;
         _embeddingOptions = embeddingOptions.Value;
@@ -133,6 +137,7 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
         {
             return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.ResultNotReady", "The completed analysis has no readable result."));
         }
+        var currentReproCase = reproCase!;
 
         var selectedExecution = run.AiExecutions.FirstOrDefault(e => e.Id == run.SelectedReproExecutionId);
         string? promptVersion = selectedExecution?.PromptVersion;
@@ -171,6 +176,24 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
                     breakdown.ScreenshotContext)));
         }
 
+        var trustReport = await _trustReports.GetLatestForTargetAsync(
+            currentReproCase.Id,
+            TrustTargetType.ReproCase,
+            cancellationToken);
+        var trustSummary = trustReport is null
+            ? null
+            : new TrustSummaryDto(
+                ToLowerCamel(trustReport.Outcome),
+                trustReport.PolicyVersion,
+                trustReport.AllowedActions.Select(ToLowerCamel).ToList(),
+                trustReport.Violations.Select(v => new TrustViolationDto(
+                    v.Code,
+                    v.OutputPath,
+                    v.SourceId,
+                    v.IsBlocking,
+                    v.Message)).ToList(),
+                trustReport.EvaluatedAt);
+
         var result = new GetAnalysisResultDetails(
             run.Id.Value,
             factsDto,
@@ -181,7 +204,8 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
             new AnalysisMetadataDto(
                 run.Version, run.SchemaVersion, run.SanitizerVersion, run.ParserVersion,
                 promptVersion, modelProvider, modelName,
-                _embeddingOptions.Model, _embeddingOptions.Version, rankerVersion ?? _duplicateOptions.RankerVersion, rerankerModel));
+                _embeddingOptions.Model, _embeddingOptions.Version, rankerVersion ?? _duplicateOptions.RankerVersion, rerankerModel),
+            trustSummary);
 
         return result;
     }

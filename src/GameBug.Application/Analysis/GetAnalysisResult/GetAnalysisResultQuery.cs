@@ -12,7 +12,8 @@ public record GetAnalysisResultDetails(
     ReproCaseDto ReproCase,
     IReadOnlyList<DuplicateCandidateDto> DuplicateCandidates,
     IReadOnlyList<string> Warnings,
-    AnalysisMetadataDto AnalysisMetadata);
+    AnalysisMetadataDto AnalysisMetadata,
+    TrustSummaryDto? Trust);
 
 public record AnalysisMetadataDto(
     int Version,
@@ -51,3 +52,10 @@ public record EvidenceSourceDto(Guid Id, string SourceType, string SourceRef, in
 public record EventTimelineEntryDto(Guid Id, DateTimeOffset? Timestamp, int RelativeSequence, string EventName, string Excerpt, string ExcerptHash, string SourceRef, int? SourceLine);
 public record ReproCaseDto(Guid Id, string Title, string BuildVersion, string Platform, string Preconditions, List<ReproStepDto> Steps, string ExpectedResult, string ActualResult, string SeverityEstimate, string SeverityReason, string? MissingInformation, double Confidence);
 public record ReproStepDto(Guid Id, int Order, string Description, string StepType, Guid? SourceId, string? InferenceReason);
+public record TrustSummaryDto(
+    string QualityOutcome,
+    string PolicyVersion,
+    IReadOnlyList<string> AllowedActions,
+    IReadOnlyList<TrustViolationDto> Violations,
+    DateTimeOffset EvaluatedAt);
+public record TrustViolationDto(string Code, string OutputPath, Guid? SourceId, bool IsBlocking, string Message);

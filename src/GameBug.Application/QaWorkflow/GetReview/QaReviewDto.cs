@@ -13,7 +13,8 @@ public record QaReviewDto(
     QaDecisionDto? Decision,
     InternalTicketDto? InternalTicket,
     IReadOnlyCollection<ReproRevisionDto> Revisions,
-    IReadOnlyCollection<ClarificationRequestDto> ClarificationRequests
+    IReadOnlyCollection<ClarificationRequestDto> ClarificationRequests,
+    TrustReportDto? TrustReport
 );
 
 public record DuplicateCandidateDto(
@@ -71,4 +72,21 @@ public record ClarificationAnswerDto(
     string AnswerText,
     string AnsweredBy,
     DateTimeOffset AnsweredAt
+);
+
+public record TrustReportDto(
+    Guid Id,
+    string Outcome,
+    string PolicyVersion,
+    IReadOnlyCollection<TrustViolationDto> Violations,
+    IReadOnlyCollection<string> AllowedActions,
+    DateTimeOffset EvaluatedAt
+);
+
+public record TrustViolationDto(
+    string Code,
+    string OutputPath,
+    Guid? SourceId,
+    bool IsBlocking,
+    string Message
 );

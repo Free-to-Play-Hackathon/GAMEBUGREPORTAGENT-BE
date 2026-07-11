@@ -18,12 +18,14 @@ public class ReproValidator : IReproValidator
         _severityPolicy = severityPolicy;
     }
 
-    public Result<ReproCase> ValidateAndConstruct(
+    public ReproValidationResult ValidateAndConstruct(
         AnalysisRunId runId,
         string rawLlmResponseJson,
         IReadOnlyList<EvidenceFact> facts,
         string reportTitle)
     {
+        var warnings = new List<ReproValidatorWarning>();
+
         LlmReproResponse? ltr;
         try
         {
@@ -31,18 +33,24 @@ public class ReproValidator : IReproValidator
         }
         catch (JsonException)
         {
-            return Result.Failure<ReproCase>(new DomainError("INVALID_AI_SCHEMA", "Output JSON is invalid."));
+            return new ReproValidationResult(
+                Result.Failure<ReproCase>(new DomainError("INVALID_AI_SCHEMA", "Output JSON is invalid.")),
+                warnings);
         }
 
         if (ltr == null)
         {
-            return Result.Failure<ReproCase>(new DomainError("INVALID_AI_SCHEMA", "Output is empty."));
+            return new ReproValidationResult(
+                Result.Failure<ReproCase>(new DomainError("INVALID_AI_SCHEMA", "Output is empty.")),
+                warnings);
         }
 
         var validationResult = ValidateAiResponse(ltr);
         if (validationResult.IsFailure)
         {
-            return Result.Failure<ReproCase>(validationResult.Error);
+            return new ReproValidationResult(
+                Result.Failure<ReproCase>(validationResult.Error),
+                warnings);
         }
 
         var severityEnum = Enum.TryParse<Severity>(ltr.SeverityEstimate, true, out var parsedSev) ? parsedSev : Severity.Medium;
@@ -52,20 +60,44 @@ public class ReproValidator : IReproValidator
         foreach (var step in ltr.Steps ?? Array.Empty<LlmReproStep>())
         {
             var stepType = Enum.TryParse<StepType>(step.StepType, true, out var parsedType) ? parsedType : StepType.SuggestedToVerify;
+            string? inferenceReason = step.InferenceReason;
 
             Guid? sourceId = null;
             if (stepType == StepType.Confirmed)
             {
                 var allSources = facts.SelectMany(f => f.Sources).ToList();
-                if (!string.IsNullOrEmpty(step.SourceId) && Guid.TryParse(step.SourceId, out var parsedGuid) && allSources.Any(s => s.Id == parsedGuid))
+                bool hasValidSource = false;
+                if (!string.IsNullOrEmpty(step.SourceId) && Guid.TryParse(step.SourceId, out var parsedGuid))
                 {
-                    sourceId = parsedGuid;
+                    var matchingSource = allSources.FirstOrDefault(s => s.Id == parsedGuid);
+                    if (matchingSource != null)
+                    {
+                        sourceId = parsedGuid;
+                        hasValidSource = true;
+                    }
                 }
-                else
+
+                if (!hasValidSource)
                 {
+                    warnings.Add(new ReproValidatorWarning(
+                        "FAKE_SOURCE",
+                        $"Step {step.Order} of type Confirmed has a fake or missing source ID: '{step.SourceId}'.",
+                        $"steps[{step.Order - 1}].sourceId",
+                        step.SourceId));
+
                     // Fallback suggested to verify if missing direct source
                     stepType = StepType.SuggestedToVerify;
+                    inferenceReason ??= "The model supplied no resolvable direct source.";
                 }
+            }
+
+            if (stepType == StepType.SuggestedToVerify && string.IsNullOrWhiteSpace(inferenceReason))
+            {
+                warnings.Add(new ReproValidatorWarning(
+                    "SUGGESTED_STEP_MISSING_REASON",
+                    $"Step {step.Order} of type SuggestedToVerify has no inference reason.",
+                    $"steps[{step.Order - 1}].inferenceReason"));
+                inferenceReason = "The model supplied no inference reason.";
             }
 
             steps.Add(new ReproStep(
@@ -74,7 +106,7 @@ public class ReproValidator : IReproValidator
                 step.Description ?? "",
                 stepType,
                 sourceId,
-                stepType == StepType.SuggestedToVerify ? (step.InferenceReason ?? "The model supplied no resolvable direct source.") : null
+                stepType == StepType.SuggestedToVerify ? inferenceReason : null
             ));
         }
 
@@ -103,7 +135,7 @@ public class ReproValidator : IReproValidator
             ltr.MissingInformation,
             confidenceScore);
 
-        return reproCaseResult;
+        return new ReproValidationResult(reproCaseResult, warnings);
     }
 
     private static Result ValidateAiResponse(LlmReproResponse response)

@@ -23,6 +23,9 @@ public static class DependencyInjection
         services.AddTransient<Evidence.EventTimelineBuilder>();
         services.AddTransient<ReproCases.SeverityPolicy>();
 
+        services.AddScoped<Abstractions.Trust.IProvenanceValidator, Trust.MvpProvenanceValidator>();
+        services.AddScoped<Abstractions.Trust.IQualityGate, Trust.MvpQualityGate>();
+
         return services;
     }
 }

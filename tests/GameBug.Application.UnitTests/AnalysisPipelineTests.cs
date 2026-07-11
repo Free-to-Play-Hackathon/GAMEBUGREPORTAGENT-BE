@@ -5,6 +5,8 @@ using GameBug.Application.Abstractions.AI;
 using GameBug.Application.Abstractions.Files;
 using GameBug.Application.Abstractions.Parsing;
 using GameBug.Application.Abstractions.Persistence;
+using GameBug.Application.Abstractions.Trust;
+using GameBug.Application.Trust;
 using GameBug.Application.Abstractions.Security;
 using GameBug.Application.Analysis.GetAnalysis;
 using GameBug.Application.Analysis.GetAnalysisResult;
@@ -239,6 +241,9 @@ Platform: iOS
 
         var promptLoader = new GameBug.Infrastructure.AI.PromptLoader();
         var reproValidator = new ReproValidator(policy);
+        var provenanceValidator = new MvpProvenanceValidator();
+        var qualityGate = new MvpQualityGate();
+        var trustReportRepository = Substitute.For<ITrustReportRepository>();
 
         var handler = new ProcessAnalysisCommandHandler(
             runRepository,
@@ -255,6 +260,9 @@ Platform: iOS
             reproValidator,
             duplicateDetection,
             unitOfWork,
+            provenanceValidator,
+            qualityGate,
+            trustReportRepository,
             NullLogger<ProcessAnalysisCommandHandler>.Instance);
 
         var command = new ProcessAnalysisCommand(runId.Value);
@@ -393,6 +401,10 @@ Platform: iOS
                 if (ex != null) Console.WriteLine($"EXCEPTION IN HANDLER: {ex}");
             });
 
+        var provenanceValidator = new MvpProvenanceValidator();
+        var qualityGate = new MvpQualityGate();
+        var trustReportRepository = Substitute.For<ITrustReportRepository>();
+
         var handler = new ProcessAnalysisCommandHandler(
             runRepository,
             reportRepository,
@@ -408,6 +420,9 @@ Platform: iOS
             reproValidator,
             duplicateDetection,
             unitOfWork,
+            provenanceValidator,
+            qualityGate,
+            trustReportRepository,
             logger);
 
         var command = new ProcessAnalysisCommand(runId.Value);

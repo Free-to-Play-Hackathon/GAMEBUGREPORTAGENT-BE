@@ -15,7 +15,8 @@ public record QaReviewResponse(
     QaDecisionResponse? Decision,
     InternalTicketResponse? InternalTicket,
     IReadOnlyCollection<ReproRevisionResponse> Revisions,
-    IReadOnlyCollection<ClarificationRequestResponse> ClarificationRequests
+    IReadOnlyCollection<ClarificationRequestResponse> ClarificationRequests,
+    TrustReportResponse? TrustReport
 );
 
 public record InternalTicketResponse(
@@ -32,4 +33,21 @@ public record DuplicateCandidateResponse(
     double FinalScore,
     string Classification,
     string Explanation
+);
+
+public record TrustReportResponse(
+    Guid Id,
+    string Outcome,
+    string PolicyVersion,
+    IReadOnlyCollection<TrustViolationResponse> Violations,
+    IReadOnlyCollection<string> AllowedActions,
+    DateTimeOffset EvaluatedAt
+);
+
+public record TrustViolationResponse(
+    string Code,
+    string OutputPath,
+    Guid? SourceId,
+    bool IsBlocking,
+    string Message
 );

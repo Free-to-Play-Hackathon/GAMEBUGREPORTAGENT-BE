@@ -63,7 +63,21 @@ public static class QaDecisionContractMapper
                         q.Answer.AnsweredAt
                     ) : null
                 )).ToList()
-            )).ToList()
+            )).ToList(),
+            dto.TrustReport != null ? new TrustReportResponse(
+                dto.TrustReport.Id,
+                dto.TrustReport.Outcome,
+                dto.TrustReport.PolicyVersion,
+                dto.TrustReport.Violations.Select(v => new TrustViolationResponse(
+                    v.Code,
+                    v.OutputPath,
+                    v.SourceId,
+                    v.IsBlocking,
+                    v.Message
+                )).ToList(),
+                dto.TrustReport.AllowedActions,
+                dto.TrustReport.EvaluatedAt
+            ) : null
         );
     }
 }
