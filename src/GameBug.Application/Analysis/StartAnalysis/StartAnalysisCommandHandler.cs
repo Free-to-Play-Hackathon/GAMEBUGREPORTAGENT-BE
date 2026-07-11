@@ -1,3 +1,4 @@
+using GameBug.Application.Abstractions.AI;
 using System.Security.Cryptography;
 using System.Text;
 using GameBug.Application.Abstractions.Persistence;
@@ -17,6 +18,7 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
     private readonly ISender _sender;
+    private readonly IAiTaskRouter _aiTaskRouter;
 
     public StartAnalysisCommandHandler(
         IBugReportRepository reports,
@@ -24,7 +26,8 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
         IIdempotencyStore idempotency,
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
-        ISender sender)
+        ISender sender,
+        IAiTaskRouter aiTaskRouter)
     {
         _reports = reports;
         _runs = runs;
@@ -32,6 +35,7 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
         _sender = sender;
+        _aiTaskRouter = aiTaskRouter;
     }
 
     public async Task<Result<StartAnalysisResult>> Handle(StartAnalysisCommand request, CancellationToken cancellationToken)
@@ -48,8 +52,17 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
             return Result.Failure<StartAnalysisResult>(new DomainError("BugReport.NotFound", "The requested bug report was not found."));
         }
 
+        var routingContext = new AiRoutingContext(request.ConfigurationProfile, request.RequestedSchemaVersion);
+        var normalizationRoute = _aiTaskRouter.Resolve(AiTask.NormalizeBugReport, routingContext);
+        var reproRoute = _aiTaskRouter.Resolve(AiTask.SynthesizeReproCase, routingContext);
+
+        string configString = $"{request.RequestedSchemaVersion.Trim()}|{request.ConfigurationProfile.Trim()}|" +
+                              $"{normalizationRoute.RoutingPolicyVersion}|{normalizationRoute.Provider}|{normalizationRoute.Model}|{normalizationRoute.PromptVersion}|{normalizationRoute.SchemaVersion}|" +
+                              $"{reproRoute.RoutingPolicyVersion}|{reproRoute.Provider}|{reproRoute.Model}|{reproRoute.PromptVersion}|{reproRoute.SchemaVersion}|" +
+                              $"sanitizer-v1|parser-v1";
+
         string inputHash = Hash($"{report.Description.Trim()}|{string.Join('|', report.Attachments.OrderBy(a => a.Id.Value).Select(a => $"{a.Id.Value}:{a.Checksum}"))}");
-        string configurationHash = Hash($"{request.RequestedSchemaVersion.Trim()}|{request.ConfigurationProfile.Trim()}|prompt-v1|sanitizer-v1|parser-v1");
+        string configurationHash = Hash(configString);
         string requestHash = Hash($"{request.ReportId}|{inputHash}|{configurationHash}");
         string scopedKey = $"{_currentUser.UserId}:POST:/api/v1/bug-reports/{request.ReportId}/analyses:{request.IdempotencyKey}";
         DateTimeOffset now = DateTimeOffset.UtcNow;

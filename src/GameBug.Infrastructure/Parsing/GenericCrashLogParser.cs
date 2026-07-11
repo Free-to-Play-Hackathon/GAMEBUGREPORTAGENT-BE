@@ -1,6 +1,12 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using GameBug.Application.Abstractions.Parsing;
 using GameBug.Domain.Evidence;
 
@@ -30,7 +36,11 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
 
     public async Task<ParsedLogResult> ExtractAsync(Stream logStream, CancellationToken cancellationToken)
     {
-        using var reader = new StreamReader(logStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+        var detectedEncoding = DetectEncoding(logStream);
+        var encoding = (Encoding)detectedEncoding.Clone();
+        encoding.DecoderFallback = DecoderFallback.ReplacementFallback;
+
+        using var reader = new StreamReader(logStream, encoding, detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
 
         string? buildVersion = null;
         string? platform = null;
@@ -41,9 +51,18 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
         var timelineEvents = new List<ParsedTimelineEvent>();
         int lineNumber = 0;
 
+        const int MaxLogCharsLimit = 2 * 1024 * 1024; // 2 MB of characters
+        int totalCharsRead = 0;
+        bool isCapturingExceptionMessage = false;
+
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
             lineNumber++;
+            totalCharsRead += line.Length;
+            if (totalCharsRead > MaxLogCharsLimit)
+            {
+                break;
+            }
 
             // 1. Detect Build Version
             if (buildVersion == null)
@@ -73,6 +92,19 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
                 {
                     exceptionType = match.Groups[1].Value;
                     exceptionMessage = match.Groups[2].Value.Trim();
+                    isCapturingExceptionMessage = true;
+                }
+            }
+            else if (isCapturingExceptionMessage)
+            {
+                if (line.TrimStart().StartsWith("at ") || line.Contains("StackTrace") || line.Contains("stack trace") ||
+                    TimestampRegex.IsMatch(line) || line.StartsWith("[") || line.Trim().Length == 0)
+                {
+                    isCapturingExceptionMessage = false;
+                }
+                else
+                {
+                    exceptionMessage += "\n" + line.Trim();
                 }
             }
 
@@ -82,7 +114,12 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
             {
                 isStackFrame = true;
                 string normalizedFrame = HexAddressRegex.Replace(line.Trim(), "0x0");
-                stackFrames.Add(normalizedFrame);
+                
+                // Deduplicate identical adjacent frames
+                if (stackFrames.Count == 0 || stackFrames[^1] != normalizedFrame)
+                {
+                    stackFrames.Add(normalizedFrame);
+                }
             }
 
             // 5. Detect Timeline/Game events
@@ -154,5 +191,42 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
             platform,
             timelineEvents,
             stackSignature);
+    }
+
+    private static Encoding DetectEncoding(Stream stream)
+    {
+        long initialPosition = stream.CanSeek ? stream.Position : 0;
+        byte[] bom = new byte[4];
+        int read = stream.Read(bom, 0, 4);
+        if (stream.CanSeek)
+        {
+            stream.Position = initialPosition;
+        }
+
+        if (read >= 2)
+        {
+            if (bom[0] == 0xFF && bom[1] == 0xFE) return Encoding.Unicode; // UTF-16 LE
+            if (bom[0] == 0xFE && bom[1] == 0xFF) return Encoding.BigEndianUnicode; // UTF-16 BE
+            if (read >= 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) return Encoding.UTF8;
+        }
+
+        // Heuristics: check for null bytes in the first few read bytes
+        if (read >= 4)
+        {
+            int nullsEven = 0;
+            int nullsOdd = 0;
+            for (int i = 0; i < read; i++)
+            {
+                if (bom[i] == 0)
+                {
+                    if (i % 2 == 0) nullsEven++;
+                    else nullsOdd++;
+                }
+            }
+            if (nullsEven > 0 && nullsOdd == 0) return Encoding.BigEndianUnicode;
+            if (nullsOdd > 0 && nullsEven == 0) return Encoding.Unicode;
+        }
+
+        return Encoding.UTF8;
     }
 }

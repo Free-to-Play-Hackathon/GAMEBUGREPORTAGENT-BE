@@ -29,6 +29,11 @@ public class GameContextRepository : IGameContextRepository
                 cancellationToken);
     }
 
+    public async Task<IReadOnlyCollection<GameEntity>> GetGameEntitiesAsync(CancellationToken cancellationToken)
+    {
+        return await _dbContext.GameEntities.ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyCollection<ExpectedBehavior>> GetExpectedBehaviorsAsync(CancellationToken cancellationToken)
     {
         return await _dbContext.ExpectedBehaviors.ToListAsync(cancellationToken);

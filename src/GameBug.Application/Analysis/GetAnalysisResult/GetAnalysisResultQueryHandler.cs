@@ -112,6 +112,11 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
             return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.ResultNotReady", "The completed analysis has no readable result."));
         }
 
+        var selectedExecution = run.AiExecutions.FirstOrDefault(e => e.Id == run.SelectedReproExecutionId);
+        string? promptVersion = selectedExecution?.PromptVersion;
+        string? modelProvider = selectedExecution?.Provider;
+        string? modelName = selectedExecution?.ResolvedModel;
+
         var result = new GetAnalysisResultDetails(
             run.Id.Value,
             factsDto,
@@ -121,7 +126,7 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
             run.Warnings.Select(warning => warning.Code).ToArray(),
             new AnalysisMetadataDto(
                 run.Version, run.SchemaVersion, run.SanitizerVersion, run.ParserVersion,
-                run.PromptVersion, run.ModelProvider, run.ModelName));
+                promptVersion, modelProvider, modelName));
 
         return result;
     }

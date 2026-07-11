@@ -10,6 +10,8 @@ using GameBug.Infrastructure.Files;
 using GameBug.Infrastructure.Observability;
 using GameBug.Infrastructure.Persistence;
 using GameBug.Infrastructure.Persistence.Repositories;
+using GameBug.Infrastructure.AI;
+using GameBug.Application.ReproCases;
 using GameBug.Infrastructure.Security;
 using GameBug.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
@@ -41,6 +43,8 @@ public static class DependencyInjection
         services.AddScoped<IGameContextRepository, GameContextRepository>();
         services.AddSingleton<IContentSanitizer, ContentSanitizer>();
         services.AddSingleton<ILogEvidenceExtractor, GenericCrashLogParser>();
+        services.AddScoped<IPromptLoader, PromptLoader>();
+        services.AddScoped<IReproValidator, ReproValidator>();
 
         // MinIO Object Storage
         services.AddOptions<ObjectStorageOptions>()

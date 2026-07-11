@@ -61,17 +61,17 @@ public class AnalysisRunConfiguration : IEntityTypeConfiguration<AnalysisRun>
             .HasColumnName("parser_version")
             .HasMaxLength(64);
 
-        builder.Property(x => x.PromptVersion)
-            .HasColumnName("prompt_version")
+        builder.Property(x => x.RoutingPolicyVersion)
+            .HasColumnName("routing_policy_version")
             .HasMaxLength(64);
 
-        builder.Property(x => x.ModelProvider)
-            .HasColumnName("model_provider")
-            .HasMaxLength(128);
+        builder.Property(x => x.SelectedReproExecutionId)
+            .HasColumnName("selected_repro_execution_id");
 
-        builder.Property(x => x.ModelName)
-            .HasColumnName("model_name")
-            .HasMaxLength(128);
+        builder.HasOne<AnalysisAiExecution>()
+            .WithMany()
+            .HasForeignKey(x => x.SelectedReproExecutionId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         builder.Property(x => x.StartedAt)
             .HasColumnName("started_at");

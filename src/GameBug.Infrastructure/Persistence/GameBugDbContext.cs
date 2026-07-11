@@ -24,6 +24,7 @@ public class GameBugDbContext : DbContext, IUnitOfWork
     public DbSet<IdempotencyRequestEntity> IdempotencyRequests => Set<IdempotencyRequestEntity>();
     public DbSet<AuditEventEntity> AuditEvents => Set<AuditEventEntity>();
     public DbSet<AnalysisRun> AnalysisRuns => Set<AnalysisRun>();
+    public DbSet<AnalysisAiExecution> AnalysisAiExecutions => Set<AnalysisAiExecution>();
     public DbSet<EvidenceFact> EvidenceFacts => Set<EvidenceFact>();
     public DbSet<EvidenceSource> EvidenceSources => Set<EvidenceSource>();
     public DbSet<EventTimelineEntry> EventTimelineEntries => Set<EventTimelineEntry>();

@@ -13,7 +13,7 @@ public sealed class AnalysisDomainTests
     {
         var run = AnalysisRun.Create(
             AnalysisRunId.CreateUnique(), BugReportId.CreateUnique(), 1, "input", "config", "schema").Value;
-        run.StartProcessing("sanitizer", "parser", "prompt", "provider", "model", DateTimeOffset.UtcNow);
+        run.StartProcessing("sanitizer", "parser", "routingPolicy", DateTimeOffset.UtcNow);
 
         var result = run.Complete("", Array.Empty<AnalysisWarning>(), DateTimeOffset.UtcNow);
 

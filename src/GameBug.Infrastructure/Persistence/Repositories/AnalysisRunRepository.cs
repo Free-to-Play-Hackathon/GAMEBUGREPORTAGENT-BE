@@ -24,12 +24,14 @@ public class AnalysisRunRepository : IAnalysisRunRepository
     public async Task<AnalysisRun?> GetAsync(AnalysisRunId id, CancellationToken cancellationToken)
     {
         return await _dbContext.AnalysisRuns
+            .Include(x => x.AiExecutions)
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
     }
 
     public async Task<AnalysisRun?> GetLatestByReportIdAsync(BugReportId reportId, CancellationToken cancellationToken)
     {
         return await _dbContext.AnalysisRuns
+            .Include(x => x.AiExecutions)
             .Where(x => x.ReportId == reportId)
             .OrderByDescending(x => x.Version)
             .FirstOrDefaultAsync(cancellationToken);

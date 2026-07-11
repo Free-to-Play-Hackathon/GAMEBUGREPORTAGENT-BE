@@ -202,6 +202,9 @@ Platform: iOS
                 Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
 
+        var promptLoader = new GameBug.Infrastructure.AI.PromptLoader();
+        var reproValidator = new ReproValidator(policy);
+
         var handler = new ProcessAnalysisCommandHandler(
             runRepository,
             reportRepository,
@@ -213,7 +216,8 @@ Platform: iOS
             contextRepository,
             aiGateway,
             aiRouter,
-            policy,
+            promptLoader,
+            reproValidator,
             unitOfWork,
             NullLogger<ProcessAnalysisCommandHandler>.Instance);
 

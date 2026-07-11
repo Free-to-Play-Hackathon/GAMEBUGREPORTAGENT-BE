@@ -1,6 +1,13 @@
-using System.Text.Json;
+using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using GameBug.Application.Abstractions.AI;
 using GameBug.Application.Abstractions.Files;
 using GameBug.Application.Abstractions.Parsing;
@@ -25,6 +32,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
     private static readonly Histogram<double> Duration = Meter.CreateHistogram<double>("analysis.duration", "ms");
     private static readonly Counter<long> Failures = Meter.CreateCounter<long>("analysis.failures");
     private static readonly Counter<long> Redactions = Meter.CreateCounter<long>("analysis.redactions");
+
     private readonly IAnalysisRunRepository _analysisRunRepository;
     private readonly IBugReportRepository _bugReportRepository;
     private readonly IObjectStorageReader _storageReader;
@@ -35,7 +43,8 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
     private readonly IGameContextRepository _gameContextRepository;
     private readonly IStructuredAiGateway _aiGateway;
     private readonly IAiTaskRouter _aiTaskRouter;
-    private readonly SeverityPolicy _severityPolicy;
+    private readonly IPromptLoader _promptLoader;
+    private readonly IReproValidator _reproValidator;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ProcessAnalysisCommandHandler> _logger;
 
@@ -50,7 +59,8 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         IGameContextRepository gameContextRepository,
         IStructuredAiGateway aiGateway,
         IAiTaskRouter aiTaskRouter,
-        SeverityPolicy severityPolicy,
+        IPromptLoader promptLoader,
+        IReproValidator reproValidator,
         IUnitOfWork unitOfWork,
         ILogger<ProcessAnalysisCommandHandler> logger)
     {
@@ -64,7 +74,8 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         _gameContextRepository = gameContextRepository;
         _aiGateway = aiGateway;
         _aiTaskRouter = aiTaskRouter;
-        _severityPolicy = severityPolicy;
+        _promptLoader = promptLoader;
+        _reproValidator = reproValidator;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -98,13 +109,12 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             var startResult = run.StartProcessing(
                 sanitizerVersion: "1.0.0",
                 parserVersion: "1.0.0",
-                promptVersion: reproRoute.PromptVersion,
-                modelProvider: reproRoute.Provider,
-                modelName: reproRoute.Model,
+                routingPolicyVersion: normalizationRoute.RoutingPolicyVersion,
                 startedAt: DateTimeOffset.UtcNow);
 
             if (startResult.IsFailure) return startResult;
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Analysis {RunId} started stage {Stage}", run.Id.Value, run.Stage);
 
             // 2. Sanitize description
             var sanitizedReport = _contentSanitizer.SanitizeDocument(report.Description);
@@ -118,6 +128,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             // 3. Extract evidence
             run.TransitionStage(AnalysisStage.ExtractingEvidence);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
 
             string? logBuildVersion = null;
             string? logPlatform = null;
@@ -171,9 +182,9 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                     stackSignatureHash = parsedLog.StackSignature?.Hash;
                     parsedEvents.AddRange(parsedLog.TimelineEvents);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    _logger.LogWarning("Failed to read or parse log attachment {AttachmentId}", logAttachment.Id.Value);
+                    _logger.LogWarning(ex, "Failed to read or parse log attachment {AttachmentId}", logAttachment.Id.Value);
                     warnings.Add(new AnalysisWarning("Attachment.ReadFailed", "A log attachment could not be processed."));
                 }
             }
@@ -196,35 +207,67 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             // 4. Ground game context
             run.TransitionStage(AnalysisStage.GroundingGameContext);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
 
             var matchedEntities = new List<GameEntity>();
             var matchedBehaviors = new List<ExpectedBehavior>();
 
-            // Find matching entities/behaviors if seed context is present
+            var allEntities = await _gameContextRepository.GetGameEntitiesAsync(cancellationToken);
             var allBehaviors = await _gameContextRepository.GetExpectedBehaviorsAsync(cancellationToken);
             var searchSource = sanitizedDescription.ToLowerInvariant();
+
+            string? resolvedBuild = facts.FirstOrDefault(f => f.FactType == "buildVersion" && (f.Status == EvidenceStatus.Supported || f.Status == EvidenceStatus.Corroborated))?.NormalizedValue 
+                ?? report.BuildVersion;
+
+            foreach (var entity in allEntities)
+            {
+                bool matched = false;
+                if (Regex.IsMatch(searchSource, $@"\b{Regex.Escape(entity.CanonicalName)}\b", RegexOptions.IgnoreCase))
+                {
+                    matched = true;
+                }
+                else
+                {
+                    foreach (var alias in entity.Aliases)
+                    {
+                        if (Regex.IsMatch(searchSource, $@"\b{Regex.Escape(alias)}\b", RegexOptions.IgnoreCase))
+                        {
+                            matched = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (matched)
+                {
+                    matchedEntities.Add(entity);
+
+                    if (!Common.VersionHelper.IsInRange(resolvedBuild, entity.BuildRangeStart, entity.BuildRangeEnd))
+                    {
+                        warnings.Add(new AnalysisWarning("CONTEXT_CONFLICT", $"Game context entity '{entity.CanonicalName}' build range [{entity.BuildRangeStart}, {entity.BuildRangeEnd}] does not match report build version '{resolvedBuild}'."));
+                    }
+                }
+            }
 
             foreach (var b in allBehaviors)
             {
                 if (!string.IsNullOrEmpty(b.Trigger) && searchSource.Contains(b.Trigger.ToLowerInvariant()))
                 {
                     matchedBehaviors.Add(b);
+
+                    if (!Common.VersionHelper.IsInRange(resolvedBuild, b.BuildRangeStart, b.BuildRangeEnd))
+                    {
+                        warnings.Add(new AnalysisWarning("CONTEXT_CONFLICT", $"Game context behavior trigger '{b.Trigger}' build range [{b.BuildRangeStart}, {b.BuildRangeEnd}] does not match report build version '{resolvedBuild}'."));
+                    }
                 }
             }
 
             // 5. Generate repro case
             run.TransitionStage(AnalysisStage.GeneratingRepro);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
 
-            string promptDir = Path.Combine(Directory.GetCurrentDirectory(), "src", "GameBug.Infrastructure", "AI", "Prompts", "repro", "v1");
-            if (!Directory.Exists(promptDir))
-            {
-                promptDir = Path.Combine(AppContext.BaseDirectory, "AI", "Prompts", "repro", "v1");
-            }
-
-            string systemInstruction = await File.ReadAllTextAsync(Path.Combine(promptDir, "system.txt"), cancellationToken);
-            string schemaJson = await File.ReadAllTextAsync(Path.Combine(promptDir, "schema.json"), cancellationToken);
-            string template = await File.ReadAllTextAsync(Path.Combine(promptDir, "template.txt"), cancellationToken);
+            var promptPackage = await _promptLoader.LoadAsync(reproRoute.PromptVersion, cancellationToken);
 
             var factsJson = JsonSerializer.Serialize(facts.Select(f => new
             {
@@ -252,6 +295,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             var reportTitle = sanitizedDescription.Length > 60 ? sanitizedDescription[..60] + "..." : sanitizedDescription;
 
             string normalizedReportJson;
+            long startLuna = Stopwatch.GetTimestamp();
             try
             {
                 const string normalizationSchema = """{"type":"object","required":["symptom","action","context","missingInformation"],"properties":{"symptom":{"type":"string"},"action":{"type":"string"},"context":{"type":"string"},"missingInformation":{"type":"array","items":{"type":"string"}}}}""";
@@ -261,90 +305,98 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                     sanitizedDescription, normalizationSchema, cancellationToken);
                 using var normalizedDocument = JsonDocument.Parse(normalization.Json);
                 normalizedReportJson = normalizedDocument.RootElement.GetRawText();
+
+                long elapsedLuna = (long)Stopwatch.GetElapsedTime(startLuna).TotalMilliseconds;
+                RecordAiExecution(
+                    run,
+                    AiTask.NormalizeBugReport,
+                    normalizationRoute,
+                    "Standard Report Normalization",
+                    attempt: 1,
+                    status: "Success",
+                    errorCode: null,
+                    latencyMs: elapsedLuna,
+                    rawResponseJson: normalization.Json);
             }
-            catch (Exception ex) when (ex is AiProviderException or JsonException)
+            catch (Exception ex)
             {
+                long elapsedLuna = (long)Stopwatch.GetElapsedTime(startLuna).TotalMilliseconds;
+                string lunaErrorCode = ex is AiProviderException provider ? provider.Code : "REPORT_NORMALIZATION_FAILED";
+                RecordAiExecution(
+                    run,
+                    AiTask.NormalizeBugReport,
+                    normalizationRoute,
+                    "Standard Report Normalization",
+                    attempt: 1,
+                    status: "Failed",
+                    errorCode: lunaErrorCode,
+                    latencyMs: elapsedLuna,
+                    rawResponseJson: null);
+
                 normalizedReportJson = JsonSerializer.Serialize(new { symptom = sanitizedDescription, action = "Unknown", context = "Unknown", missingInformation = new[] { "AI report normalization unavailable" } });
                 warnings.Add(new AnalysisWarning("REPORT_NORMALIZATION_FALLBACK", "Deterministic report facts were used because report normalization was unavailable."));
             }
 
-            var prompt = template
+            var prompt = promptPackage.Template
                 .Replace("{ReportTitle}", reportTitle)
                 .Replace("{ReportDescription}", normalizedReportJson)
                 .Replace("{EvidenceFacts}", factsJson)
                 .Replace("{EventTimeline}", timelineJson)
                 .Replace("{GameContext}", contextJson);
 
-            var generation = await _aiGateway.GenerateStructuredResponseAsync(
-                AiTask.SynthesizeReproCase, reproRoute, systemInstruction, prompt, schemaJson, cancellationToken);
-
-            var ltr = JsonSerializer.Deserialize<LlmReproResponse>(generation.Json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            if (ltr == null)
+            long startTerra = Stopwatch.GetTimestamp();
+            AiGenerationResult generation;
+            try
             {
-                throw new AiProviderException("INVALID_AI_SCHEMA", false);
+                generation = await _aiGateway.GenerateStructuredResponseAsync(
+                    AiTask.SynthesizeReproCase, reproRoute, promptPackage.SystemInstruction, prompt, promptPackage.SchemaJson, cancellationToken);
+
+                long elapsedTerra = (long)Stopwatch.GetElapsedTime(startTerra).TotalMilliseconds;
+                RecordAiExecution(
+                    run,
+                    AiTask.SynthesizeReproCase,
+                    reproRoute,
+                    "Repro Case Synthesis",
+                    attempt: 1,
+                    status: "Success",
+                    errorCode: null,
+                    latencyMs: elapsedTerra,
+                    rawResponseJson: generation.Json);
+            }
+            catch (Exception ex)
+            {
+                long elapsedTerra = (long)Stopwatch.GetElapsedTime(startTerra).TotalMilliseconds;
+                string terraErrorCode = ex is AiProviderException provider ? provider.Code : "REPRO_SYNTHESIS_FAILED";
+                RecordAiExecution(
+                    run,
+                    AiTask.SynthesizeReproCase,
+                    reproRoute,
+                    "Repro Case Synthesis",
+                    attempt: 1,
+                    status: "Failed",
+                    errorCode: terraErrorCode,
+                    latencyMs: elapsedTerra,
+                    rawResponseJson: null);
+                throw;
             }
 
-            ValidateAiResponse(ltr);
-
-            var severityEnum = Enum.TryParse<Severity>(ltr.SeverityEstimate, true, out var parsedSev) ? parsedSev : Severity.Medium;
-            var (finalSeverity, finalSeverityReason) = _severityPolicy.EstimateSeverity(facts, severityEnum, ltr.SeverityReason ?? "");
-
-            var steps = new List<ReproStep>();
-            foreach (var step in ltr.Steps ?? Array.Empty<LlmReproStep>())
-            {
-                var stepType = Enum.TryParse<StepType>(step.StepType, true, out var parsedType) ? parsedType : StepType.SuggestedToVerify;
-
-                Guid? sourceId = null;
-                if (stepType == StepType.Confirmed)
-                {
-                    var allSources = facts.SelectMany(f => f.Sources).ToList();
-                    if (!string.IsNullOrEmpty(step.SourceId) && Guid.TryParse(step.SourceId, out var parsedGuid) && allSources.Any(s => s.Id == parsedGuid))
-                    {
-                        sourceId = parsedGuid;
-                    }
-                    else
-                    {
-                        stepType = StepType.SuggestedToVerify;
-                    }
-                }
-
-                steps.Add(new ReproStep(
-                    Guid.NewGuid(),
-                    step.Order,
-                    step.Description ?? "",
-                    stepType,
-                    sourceId,
-                    stepType == StepType.SuggestedToVerify ? (step.InferenceReason ?? "The model supplied no resolvable direct source.") : null
-                ));
-            }
-
-            double evidenceConfidence = facts.Count == 0 ? 0 : facts.Average(fact => fact.Confidence);
-            var confidenceScore = ConfidenceScore.Create(Math.Clamp(evidenceConfidence, 0, 1)).Value;
-            string validatedBuild = IsSupportedValue(ltr.BuildVersion, facts, "buildVersion") ? ltr.BuildVersion! : "Unknown";
-            string validatedPlatform = IsSupportedValue(ltr.Platform, facts, "platform") ? ltr.Platform! : "Unknown";
-            var reproCaseResult = ReproCase.Create(
-                Guid.NewGuid(),
-                run.Id,
-                ltr.Title ?? reportTitle,
-                validatedBuild,
-                validatedPlatform,
-                ltr.Preconditions ?? "",
-                steps,
-                ltr.ExpectedResult!,
-                ltr.ActualResult!,
-                finalSeverity,
-                finalSeverityReason,
-                ltr.MissingInformation,
-                confidenceScore);
-
+            var reproCaseResult = _reproValidator.ValidateAndConstruct(run.Id, generation.Json, facts, reportTitle);
             if (reproCaseResult.IsFailure)
             {
                 throw new Exception($"Failed to construct valid ReproCase: {reproCaseResult.Error.Description}");
             }
 
+            var selectedExecution = run.AiExecutions.FirstOrDefault(e => e.Task == AiTask.SynthesizeReproCase.ToString() && e.Status == "Success");
+            if (selectedExecution != null)
+            {
+                selectedExecution.MarkSelected();
+                run.SetSelectedReproExecutionId(selectedExecution.Id);
+            }
+
             // 6. Persist results
             run.TransitionStage(AnalysisStage.PersistingResult);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
 
             await _unitOfWork.BeginTransactionAsync(cancellationToken);
             try
@@ -375,7 +427,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         {
             string errorCode = ex is AiProviderException provider ? provider.Code : "ANALYSIS_FAILED";
             Failures.Add(1, new KeyValuePair<string, object?>("error.code", errorCode));
-            _logger.LogError("Analysis run {RunId} failed with {ErrorCode}", run.Id.Value, errorCode);
+            _logger.LogError(ex, "Analysis run {RunId} failed with {ErrorCode}", run.Id.Value, errorCode);
             warnings.Add(new AnalysisWarning(errorCode, "The analysis pipeline failed safely."));
             run = await _analysisRunRepository.GetAsync(runId, cancellationToken) ?? run;
             run.Fail(errorCode, warnings, DateTimeOffset.UtcNow);
@@ -386,59 +438,47 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         }
     }
 
-    private static void ValidateAiResponse(LlmReproResponse response)
+    private void RecordAiExecution(
+        AnalysisRun run,
+        AiTask task,
+        AiRoute route,
+        string routingReason,
+        int attempt,
+        string status,
+        string? errorCode,
+        long latencyMs,
+        string? rawResponseJson)
     {
-        if (string.IsNullOrWhiteSpace(response.Title) ||
-            string.IsNullOrWhiteSpace(response.ExpectedResult) ||
-            string.IsNullOrWhiteSpace(response.ActualResult) ||
-            string.IsNullOrWhiteSpace(response.SeverityReason) ||
-            response.Steps is null || response.Steps.Length == 0 ||
-            response.Confidence is < 0 or > 1 ||
-            !Enum.TryParse<Severity>(response.SeverityEstimate, true, out _))
+        string? outputHash = null;
+        if (!string.IsNullOrEmpty(rawResponseJson))
         {
-            throw new AiProviderException("INVALID_AI_SCHEMA", false);
+            var hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawResponseJson));
+            outputHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
         }
 
-        if (response.Steps.Any(step => step.Order <= 0 || string.IsNullOrWhiteSpace(step.Description) ||
-            !Enum.TryParse<StepType>(step.StepType, true, out _)))
-        {
-            throw new AiProviderException("INVALID_AI_SCHEMA", false);
-        }
-    }
+        var execution = new AnalysisAiExecution(
+            Guid.NewGuid(),
+            run.Id,
+            task.ToString(),
+            route.Profile,
+            routingReason,
+            route.Provider,
+            route.Model,
+            route.Model,
+            route.PromptVersion,
+            route.SchemaVersion,
+            route.RoutingPolicyVersion,
+            attempt,
+            status,
+            errorCode,
+            latencyMs,
+            inputTokens: null,
+            outputTokens: null,
+            providerRequestIdHash: null,
+            outputHash,
+            isSelected: false,
+            createdAt: DateTimeOffset.UtcNow);
 
-    private static bool IsSupportedValue(string? value, IEnumerable<EvidenceFact> facts, string factType)
-    {
-        if (string.IsNullOrWhiteSpace(value) || value.Equals("Unknown", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return facts.Any(fact => fact.FactType == factType &&
-            fact.Status is EvidenceStatus.Supported or EvidenceStatus.Corroborated &&
-            string.Equals(fact.NormalizedValue, value, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private class LlmReproResponse
-    {
-        public string? Title { get; set; }
-        public string? BuildVersion { get; set; }
-        public string? Platform { get; set; }
-        public string? Preconditions { get; set; }
-        public LlmReproStep[]? Steps { get; set; }
-        public string? ExpectedResult { get; set; }
-        public string? ActualResult { get; set; }
-        public string? SeverityEstimate { get; set; }
-        public string? SeverityReason { get; set; }
-        public string? MissingInformation { get; set; }
-        public double Confidence { get; set; }
-    }
-
-    private class LlmReproStep
-    {
-        public int Order { get; set; }
-        public string? Description { get; set; }
-        public string? StepType { get; set; }
-        public string? SourceId { get; set; }
-        public string? InferenceReason { get; set; }
+        run.AddAiExecution(execution);
     }
 }

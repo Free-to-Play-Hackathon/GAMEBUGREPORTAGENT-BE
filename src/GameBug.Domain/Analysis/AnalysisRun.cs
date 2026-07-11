@@ -6,6 +6,7 @@ namespace GameBug.Domain.Analysis;
 public class AnalysisRun
 {
     private readonly List<AnalysisWarning> _warnings = new();
+    private readonly List<AnalysisAiExecution> _aiExecutions = new();
 
     // For EF Core
     private AnalysisRun() { }
@@ -38,9 +39,8 @@ public class AnalysisRun
     public string SchemaVersion { get; private set; } = null!;
     public string? SanitizerVersion { get; private set; }
     public string? ParserVersion { get; private set; }
-    public string? PromptVersion { get; private set; }
-    public string? ModelProvider { get; private set; }
-    public string? ModelName { get; private set; }
+    public string? RoutingPolicyVersion { get; private set; }
+    public Guid? SelectedReproExecutionId { get; private set; }
     public DateTimeOffset? StartedAt { get; private set; }
     public DateTimeOffset? CompletedAt { get; private set; }
     public string? ErrorCode { get; private set; }
@@ -48,6 +48,7 @@ public class AnalysisRun
     public uint VersionToken { get; private set; } // Concurrency token
 
     public IReadOnlyCollection<AnalysisWarning> Warnings => _warnings.AsReadOnly();
+    public IReadOnlyCollection<AnalysisAiExecution> AiExecutions => _aiExecutions.AsReadOnly();
 
     public static Result<AnalysisRun> Create(
         AnalysisRunId id,
@@ -83,9 +84,7 @@ public class AnalysisRun
     public Result StartProcessing(
         string sanitizerVersion,
         string parserVersion,
-        string promptVersion,
-        string modelProvider,
-        string modelName,
+        string routingPolicyVersion,
         DateTimeOffset startedAt)
     {
         if (Status != AnalysisStatus.Received)
@@ -97,9 +96,7 @@ public class AnalysisRun
 
         SanitizerVersion = sanitizerVersion;
         ParserVersion = parserVersion;
-        PromptVersion = promptVersion;
-        ModelProvider = modelProvider;
-        ModelName = modelName;
+        RoutingPolicyVersion = routingPolicyVersion;
         StartedAt = startedAt;
         Status = AnalysisStatus.Processing;
         Stage = AnalysisStage.Sanitizing;
@@ -136,6 +133,16 @@ public class AnalysisRun
 
         Stage = nextStage;
         return Result.Success();
+    }
+
+    public void AddAiExecution(AnalysisAiExecution execution)
+    {
+        _aiExecutions.Add(execution);
+    }
+
+    public void SetSelectedReproExecutionId(Guid executionId)
+    {
+        SelectedReproExecutionId = executionId;
     }
 
     public Result Complete(string resultReference, IReadOnlyCollection<AnalysisWarning> warnings, DateTimeOffset completedAt)

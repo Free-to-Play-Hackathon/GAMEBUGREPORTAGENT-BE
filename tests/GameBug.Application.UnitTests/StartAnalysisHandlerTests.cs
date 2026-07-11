@@ -1,3 +1,4 @@
+using GameBug.Application.Abstractions.AI;
 using FluentAssertions;
 using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Abstractions.Security;
@@ -22,6 +23,10 @@ public sealed class StartAnalysisHandlerTests
         var unitOfWork = Substitute.For<IUnitOfWork>();
         var currentUser = Substitute.For<ICurrentUser>();
         var sender = Substitute.For<ISender>();
+        var aiTaskRouter = Substitute.For<IAiTaskRouter>();
+        aiTaskRouter.Resolve(Arg.Any<AiTask>(), Arg.Any<AiRoutingContext>())
+            .Returns(new AiRoute("default", "provider", "model", "prompt", "schema", "policy", 30, 2048));
+
         var reportId = BugReportId.CreateUnique();
         var report = BugReport.Submit(
             reportId, "A sufficiently long description", "1.0", "Windows", null, null, null,
@@ -40,7 +45,7 @@ public sealed class StartAnalysisHandlerTests
             .Returns(Task.CompletedTask);
         idempotency.GetAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => completed);
         runs.GetAsync(Arg.Any<AnalysisRunId>(), Arg.Any<CancellationToken>()).Returns(_ => createdRun);
-        var handler = new StartAnalysisCommandHandler(reports, runs, idempotency, unitOfWork, currentUser, sender);
+        var handler = new StartAnalysisCommandHandler(reports, runs, idempotency, unitOfWork, currentUser, sender, aiTaskRouter);
         var command = new StartAnalysisCommand(
             reportId.Value, "1234567890123456", "analysis-result-v1", "default");
 
@@ -62,13 +67,17 @@ public sealed class StartAnalysisHandlerTests
         var unitOfWork = Substitute.For<IUnitOfWork>();
         var currentUser = Substitute.For<ICurrentUser>();
         var sender = Substitute.For<ISender>();
+        var aiTaskRouter = Substitute.For<IAiTaskRouter>();
+        aiTaskRouter.Resolve(Arg.Any<AiTask>(), Arg.Any<AiRoutingContext>())
+            .Returns(new AiRoute("default", "provider", "model", "prompt", "schema", "policy", 30, 2048));
+
         var reportId = BugReportId.CreateUnique();
         reports.GetAsync(reportId, Arg.Any<CancellationToken>()).Returns(BugReport.Submit(
             reportId, "A sufficiently long description", null, null, null, null, null,
             "owner", DateTimeOffset.UtcNow).Value);
         currentUser.IsAuthenticated.Returns(true);
         currentUser.UserId.Returns("intruder");
-        var handler = new StartAnalysisCommandHandler(reports, runs, idempotency, unitOfWork, currentUser, sender);
+        var handler = new StartAnalysisCommandHandler(reports, runs, idempotency, unitOfWork, currentUser, sender, aiTaskRouter);
 
         var result = await handler.Handle(new StartAnalysisCommand(
             reportId.Value, "1234567890123456", "analysis-result-v1", "default"), CancellationToken.None);
