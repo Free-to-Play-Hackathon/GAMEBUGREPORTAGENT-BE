@@ -709,7 +709,7 @@ server_name _;
 thành:
 
 ```nginx
-server_name api.yourdomain.com;
+server_name gamebugreport.duckdns.org;
 ```
 
 Reload Nginx:
@@ -722,7 +722,7 @@ sudo systemctl reload nginx
 Cấp certificate:
 
 ```bash
-sudo certbot --nginx -d api.yourdomain.com
+sudo certbot --nginx -d gamebugreport.duckdns.org
 ```
 
 Test:
