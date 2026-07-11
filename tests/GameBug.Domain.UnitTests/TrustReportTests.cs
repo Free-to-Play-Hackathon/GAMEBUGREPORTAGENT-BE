@@ -54,11 +54,11 @@ public class TrustReportTests
         result.Value.Outcome.Should().Be(QualityOutcome.Passed);
         result.Value.AllowedActions.Should().Contain(new[]
         {
-            AllowedQaAction.RejectAnalysis,
             AllowedQaAction.RequestMoreInformation,
             AllowedQaAction.MarkDuplicate,
             AllowedQaAction.EditAndCreateNew
         });
+        result.Value.AllowedActions.Should().NotContain(AllowedQaAction.RejectAnalysis);
     }
 
     [Fact]
@@ -86,11 +86,11 @@ public class TrustReportTests
         result.Value.Outcome.Should().Be(QualityOutcome.PassedWithWarnings);
         result.Value.AllowedActions.Should().Contain(new[]
         {
-            AllowedQaAction.RejectAnalysis,
             AllowedQaAction.RequestMoreInformation,
             AllowedQaAction.MarkDuplicate,
             AllowedQaAction.EditAndCreateNew
         });
+        result.Value.AllowedActions.Should().NotContain(AllowedQaAction.RejectAnalysis);
     }
 
     [Fact]
@@ -118,11 +118,11 @@ public class TrustReportTests
         result.Value.Outcome.Should().Be(QualityOutcome.NeedsMoreInformation);
         result.Value.AllowedActions.Should().Contain(new[]
         {
-            AllowedQaAction.RejectAnalysis,
             AllowedQaAction.RequestMoreInformation,
             AllowedQaAction.MarkDuplicate
         });
         result.Value.AllowedActions.Should().NotContain(AllowedQaAction.EditAndCreateNew);
+        result.Value.AllowedActions.Should().NotContain(AllowedQaAction.RejectAnalysis);
     }
 
     [Fact]

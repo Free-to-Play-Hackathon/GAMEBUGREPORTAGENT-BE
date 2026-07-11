@@ -1,4 +1,6 @@
 using System;
+using GameBug.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,6 +8,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace GameBug.Infrastructure.Persistence.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(GameBugDbContext))]
+    [Migration("20260711162000_Phase6TrustGateMvp")]
     public partial class Phase6TrustGateMvp : Migration
     {
         /// <inheritdoc />

@@ -11,6 +11,7 @@ public record GetAnalysisResultDetails(
     List<EventTimelineEntryDto> Timeline,
     ReproCaseDto ReproCase,
     IReadOnlyList<DuplicateCandidateDto> DuplicateCandidates,
+    string? CandidateSnapshotHash,
     IReadOnlyList<string> Warnings,
     AnalysisMetadataDto AnalysisMetadata,
     TrustSummaryDto? Trust);

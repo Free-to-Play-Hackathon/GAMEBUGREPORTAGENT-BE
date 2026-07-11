@@ -95,6 +95,42 @@ public sealed class DuplicateDetectionServiceTests
         result.Matches[0].ConflictingSignals.Should().Contain("actualResult");
     }
 
+    [Fact]
+    public async Task DetectAsync_ShouldBindAllCandidatesToOneSnapshotHash()
+    {
+        var repository = Substitute.For<IHistoricalTicketRepository>();
+        var embeddingProvider = Substitute.For<IEmbeddingProvider>();
+        var fixture = CreateFixture("Game crashes after opening inventory", "stack-a");
+        var first = CreateTicket(
+            "BUG-201", "Inventory crash", "Game crashes after opening inventory",
+            "stack-a", "open inventory", "inventory", "Game crashes after opening inventory");
+        var second = CreateTicket(
+            "BUG-202", "Inventory failure", "Inventory throws an exception",
+            "stack-a", "open inventory", "inventory", "Game crashes after opening inventory");
+        first.SetEmbedding(new[] { 1f, 0f }, "test", "test-model", "embedding-v1", 2, DateTimeOffset.UtcNow);
+        second.SetEmbedding(new[] { 0.9f, 0.1f }, "test", "test-model", "embedding-v1", 2, DateTimeOffset.UtcNow);
+
+        repository.GetIndexSnapshotVersionAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns("index-v1");
+        repository.GetExactCandidatesAsync(Arg.Any<Guid>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { first, second });
+        repository.GetLexicalCandidatesAsync(Arg.Any<Guid>(), Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { first, second });
+        repository.GetVectorCandidatesAsync(
+                Arg.Any<Guid>(), Arg.Any<float[]>(), "embedding-v1", 2, Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { first, second });
+        embeddingProvider.EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new EmbeddingResult(new[] { 1f, 0f }, "test", "test-model", "embedding-v1", 2));
+
+        var service = new DuplicateDetectionService(
+            repository, embeddingProvider, Options.Create(new DuplicateDetectionOptions()));
+
+        var result = await service.DetectAsync(
+            fixture.Run, fixture.ReproCase, fixture.EvidencePack, CancellationToken.None);
+
+        result.Matches.Should().HaveCount(2);
+        result.Matches.Select(match => match.CandidateSnapshotHash).Distinct().Should().ContainSingle();
+    }
+
     private static void ConfigureRepository(
         IHistoricalTicketRepository repository,
         HistoricalTicket ticket,

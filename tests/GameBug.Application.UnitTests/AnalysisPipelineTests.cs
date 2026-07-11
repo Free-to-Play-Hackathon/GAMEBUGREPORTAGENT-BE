@@ -357,6 +357,9 @@ Platform: iOS
             duplicateDetection,
             Options.Create(new DuplicateDetectionOptions()),
             unitOfWork,
+            new MvpProvenanceValidator(),
+            new MvpQualityGate(),
+            Substitute.For<ITrustReportRepository>(),
             NullLogger<ProcessAnalysisCommandHandler>.Instance);
 
         var result = await handler.Handle(new ProcessAnalysisCommand(run.Id.Value), CancellationToken.None);

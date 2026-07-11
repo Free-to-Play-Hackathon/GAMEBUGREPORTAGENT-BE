@@ -99,7 +99,19 @@ internal sealed class OpenQaReviewCommandHandler : IRequestHandler<OpenQaReviewC
             return Result.Failure<Guid>(new DomainError("DUPLICATE_GATE_REQUIRED", "QA review requires a persisted duplicate candidate snapshot."));
         }
 
-        var snapshotHash = matches.First().CandidateSnapshotHash;
+        var snapshotHashes = matches
+            .Select(match => match.CandidateSnapshotHash)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (snapshotHashes.Length != 1)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure<Guid>(new DomainError(
+                "CANDIDATE_SNAPSHOT_MISMATCH",
+                "Persisted duplicate candidates do not belong to one immutable snapshot."));
+        }
+
+        var snapshotHash = snapshotHashes[0];
         
         if (request.CandidateSnapshotHash != snapshotHash)
         {
