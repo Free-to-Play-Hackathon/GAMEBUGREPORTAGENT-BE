@@ -21,6 +21,11 @@ public class AnalysisRunRepository : IAnalysisRunRepository
         await _dbContext.AnalysisRuns.AddAsync(run, cancellationToken);
     }
 
+    public void AddAiExecution(AnalysisAiExecution execution)
+    {
+        _dbContext.AnalysisAiExecutions.Add(execution);
+    }
+
     public async Task<AnalysisRun?> GetAsync(AnalysisRunId id, CancellationToken cancellationToken)
     {
         return await _dbContext.AnalysisRuns

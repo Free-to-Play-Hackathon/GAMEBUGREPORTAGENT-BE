@@ -24,6 +24,7 @@ namespace GameBug.IntegrationTests;
 public sealed class DatabaseAndStorageIntegrationTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder()
+        .WithImage("pgvector/pgvector:0.8.4-pg16-bookworm")
         .WithDatabase("gamebug_test")
         .WithUsername("test")
         .WithPassword("test")
@@ -111,6 +112,35 @@ public sealed class DatabaseAndStorageIntegrationTests : IAsyncLifetime
         savedRun.AiExecutions.Should().HaveCount(1);
         savedRun.AiExecutions.First().ResolvedModel.Should().Be("gemini-2.5-flash");
         savedRun.AiExecutions.First().IsSelected.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Database_ShouldPersistNewBugReportWithInitialVersion()
+    {
+        var options = new DbContextOptionsBuilder<GameBugDbContext>()
+            .UseNpgsql(_postgresContainer.GetConnectionString())
+            .Options;
+
+        await using var context = new GameBugDbContext(options);
+        await context.Database.MigrateAsync();
+
+        var report = BugReport.Submit(
+            BugReportId.CreateUnique(),
+            "Game crashes when opening inventory after loading a saved game.",
+            "1.0.0",
+            "Windows 11",
+            "PC",
+            "vi-VN",
+            "session-test-001",
+            "TestUser",
+            DateTimeOffset.UtcNow).Value;
+
+        context.BugReports.Add(report);
+        await context.SaveChangesAsync();
+
+        context.ChangeTracker.Clear();
+        var savedReport = await context.BugReports.SingleAsync(item => item.Id == report.Id);
+        savedReport.Version.Should().Be(0);
     }
 
     [Fact]

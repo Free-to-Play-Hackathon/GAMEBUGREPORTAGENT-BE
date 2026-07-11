@@ -104,7 +104,7 @@ public class AnalysisRunConfiguration : IEntityTypeConfiguration<AnalysisRun>
 
         builder.Property(x => x.VersionToken)
             .HasColumnName("version_token")
-            .IsRowVersion();
+            .IsConcurrencyToken();
 
         // Unique constraint and indexes
         builder.HasIndex(x => new { x.ReportId, x.Version }).IsUnique();

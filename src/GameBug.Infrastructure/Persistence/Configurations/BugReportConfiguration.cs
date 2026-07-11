@@ -61,7 +61,7 @@ public class BugReportConfiguration : IEntityTypeConfiguration<BugReport>
 
         builder.Property(x => x.Version)
             .HasColumnName("version")
-            .IsRowVersion(); // Optimistic concurrency mapping (uses xmin in Postgres automatically if Npgsql, or standard rowversion)
+            .IsConcurrencyToken();
 
         builder.HasMany(x => x.Attachments)
             .WithOne()

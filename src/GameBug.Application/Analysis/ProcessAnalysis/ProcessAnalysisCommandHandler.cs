@@ -492,5 +492,6 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             createdAt: DateTimeOffset.UtcNow);
 
         run.AddAiExecution(execution);
+        _analysisRunRepository.AddAiExecution(execution);
     }
 }

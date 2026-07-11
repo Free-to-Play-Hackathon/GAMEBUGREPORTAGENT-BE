@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -86,5 +87,52 @@ public sealed class IntakeEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType?.MediaType.Should().Be("text/html");
+    }
+
+    [Fact]
+    public async Task OpenApi_ShouldDescribeCreateReportMultipartFormAndIdempotencyHeader()
+    {
+        using var response = await _client.GetAsync("/swagger/v1/swagger.json");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var operation = document.RootElement
+            .GetProperty("paths")
+            .GetProperty("/api/v1/bug-reports")
+            .GetProperty("post");
+
+        operation.GetProperty("parameters")[0].GetProperty("name").GetString()
+            .Should().Be("Idempotency-Key");
+        operation.GetProperty("requestBody").GetProperty("content")
+            .TryGetProperty("multipart/form-data", out var multipart).Should().BeTrue();
+
+        var schema = multipart.GetProperty("schema");
+        if (schema.TryGetProperty("$ref", out var reference))
+        {
+            string schemaName = reference.GetString()!.Split('/').Last();
+            schema = document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty(schemaName);
+        }
+
+        var properties = schema.GetProperty("properties");
+        properties.TryGetProperty("description", out _).Should().BeTrue();
+        properties.TryGetProperty("buildVersion", out _).Should().BeTrue();
+        properties.TryGetProperty("platform", out _).Should().BeTrue();
+        properties.TryGetProperty("device", out _).Should().BeTrue();
+        properties.TryGetProperty("locale", out _).Should().BeTrue();
+        properties.TryGetProperty("sessionReference", out _).Should().BeTrue();
+        properties.TryGetProperty("attachments", out _).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task OpenApi_ShouldDescribeStartAnalysisIdempotencyHeader()
+    {
+        using var response = await _client.GetAsync("/swagger/v1/swagger.json");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var operation = document.RootElement
+            .GetProperty("paths")
+            .GetProperty("/api/v1/bug-reports/{reportId}/analyses")
+            .GetProperty("post");
+
+        operation.GetProperty("parameters").EnumerateArray()
+            .Select(parameter => parameter.GetProperty("name").GetString())
+            .Should().Contain("Idempotency-Key");
     }
 }

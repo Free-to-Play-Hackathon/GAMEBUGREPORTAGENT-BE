@@ -100,6 +100,7 @@ public class AnalysisRun
         StartedAt = startedAt;
         Status = AnalysisStatus.Processing;
         Stage = AnalysisStage.Sanitizing;
+        VersionToken++;
 
         return Result.Success();
     }
@@ -132,6 +133,7 @@ public class AnalysisRun
         }
 
         Stage = nextStage;
+        VersionToken++;
         return Result.Success();
     }
 
@@ -143,6 +145,7 @@ public class AnalysisRun
     public void SetSelectedReproExecutionId(Guid executionId)
     {
         SelectedReproExecutionId = executionId;
+        VersionToken++;
     }
 
     public Result Complete(string resultReference, IReadOnlyCollection<AnalysisWarning> warnings, DateTimeOffset completedAt)
@@ -167,6 +170,7 @@ public class AnalysisRun
         ResultReference = resultReference;
         Status = _warnings.Any() ? AnalysisStatus.CompletedWithWarnings : AnalysisStatus.Completed;
         Stage = null;
+        VersionToken++;
 
         return Result.Success();
     }
@@ -191,6 +195,7 @@ public class AnalysisRun
         CompletedAt = completedAt;
         Status = AnalysisStatus.Failed;
         Stage = null;
+        VersionToken++;
 
         return Result.Success();
     }
