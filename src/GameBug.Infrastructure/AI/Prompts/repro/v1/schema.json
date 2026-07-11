@@ -1,64 +1,67 @@
 {
-  "type": "OBJECT",
+  "type": "object",
   "properties": {
     "title": {
-      "type": "STRING",
+      "type": "string",
       "description": "Descriptive title of the reproduction case"
     },
     "buildVersion": {
-      "type": "STRING",
+      "type": "string",
       "description": "Normalized build version or 'Unknown'"
     },
     "platform": {
-      "type": "STRING",
+      "type": "string",
       "description": "Target platform or 'Unknown'"
     },
     "preconditions": {
-      "type": "STRING",
+      "type": "string",
       "description": "List of preconditions required to set up the repro"
     },
     "steps": {
-      "type": "ARRAY",
+      "type": "array",
       "items": {
-        "type": "OBJECT",
+        "type": "object",
         "properties": {
           "order": {
-            "type": "INTEGER"
+            "type": "integer"
           },
           "description": {
-            "type": "STRING"
+            "type": "string"
           },
           "stepType": {
-            "type": "STRING",
+            "type": "string",
             "enum": [
               "Confirmed",
               "SuggestedToVerify"
             ]
           },
           "sourceId": {
-            "type": "STRING",
+            "type": ["string", "null"],
             "description": "The GUID of the evidence source if Confirmed, or null"
           },
           "inferenceReason": {
-            "type": "STRING",
+            "type": ["string", "null"],
             "description": "The logic or reason if SuggestedToVerify, or null"
           }
         },
         "required": [
           "order",
           "description",
-          "stepType"
-        ]
+          "stepType",
+          "sourceId",
+          "inferenceReason"
+        ],
+        "additionalProperties": false
       }
     },
     "expectedResult": {
-      "type": "STRING"
+      "type": "string"
     },
     "actualResult": {
-      "type": "STRING"
+      "type": "string"
     },
     "severityEstimate": {
-      "type": "STRING",
+      "type": "string",
       "enum": [
         "Low",
         "Medium",
@@ -67,13 +70,13 @@
       ]
     },
     "severityReason": {
-      "type": "STRING"
+      "type": "string"
     },
     "missingInformation": {
-      "type": "STRING"
+      "type": "string"
     },
     "confidence": {
-      "type": "NUMBER"
+      "type": "number"
     }
   },
   "required": [
@@ -86,6 +89,8 @@
     "actualResult",
     "severityEstimate",
     "severityReason",
+    "missingInformation",
     "confidence"
-  ]
+  ],
+  "additionalProperties": false
 }
