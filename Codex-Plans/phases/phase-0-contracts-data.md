@@ -33,6 +33,23 @@ Phase hoàn thành khi:
 
 ## 3. Quyết định kỹ thuật đã chốt
 
+### AI task taxonomy và routing contract
+
+Contract provider-neutral phải định nghĩa task thay vì gắn trực tiếp một model vào use case:
+
+| `AiTask` | Output contract | Default profile | Escalation |
+|---|---|---|---|
+| `NormalizeBugReport` | `NormalizedBugReportV1` | `report-understanding` → `gpt-5.6-luna` | Terra nếu output invalid/ambiguous theo policy |
+| `SynthesizeReproCase` | `ReproCaseV1` | `repro-synthesis` → `gpt-5.6-terra` | Sol chỉ khi quality gate cho phép |
+| `ExplainDuplicate` | `DuplicateExplanationV1` | `duplicate-explanation` → `gpt-5.6-luna` | Terra cho bounded difficult cases |
+| `ExtractVisionEvidence` | `VisionEvidenceV1` | `vision-evidence` → `gpt-5.6-terra` | Không dùng Sol mặc định; failure trả text/log baseline |
+
+`AiTask`, schema và result metadata thuộc Application contract; provider/model mapping thuộc Infrastructure configuration. Domain không chứa tên Luna/Terra/Sol.
+
+Mỗi `AiResult<T>` tối thiểu phải có `Provider`, `RequestedModel`, `ResolvedModel`, `PromptVersion`, `SchemaVersion`, `RouteProfile`, `RoutingReason`, `Attempt`, `Latency`, usage nullable và provider request ID an toàn. Không persist prompt/raw response.
+
+`RoutingReason` dùng allowlist: `Default`, `QualityEscalation`, `CapabilityFallback`, `ProviderFallback`, `ManualEvaluationProfile`. Caller không được truyền arbitrary provider/model ID qua public API.
+
 | Hạng mục | Quyết định | Ghi chú |
 |---|---|---|
 | Backend | ASP.NET Core modular monolith | API và Worker là hai host, dùng chung Application/Domain |

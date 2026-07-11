@@ -1,6 +1,10 @@
 using System.Data;
 using GameBug.Application.Abstractions.Persistence;
 using GameBug.Domain.BugReports;
+using GameBug.Domain.Analysis;
+using GameBug.Domain.Evidence;
+using GameBug.Domain.ReproCases;
+using GameBug.Domain.GameContext;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -19,6 +23,14 @@ public class GameBugDbContext : DbContext, IUnitOfWork
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<IdempotencyRequestEntity> IdempotencyRequests => Set<IdempotencyRequestEntity>();
     public DbSet<AuditEventEntity> AuditEvents => Set<AuditEventEntity>();
+    public DbSet<AnalysisRun> AnalysisRuns => Set<AnalysisRun>();
+    public DbSet<EvidenceFact> EvidenceFacts => Set<EvidenceFact>();
+    public DbSet<EvidenceSource> EvidenceSources => Set<EvidenceSource>();
+    public DbSet<EventTimelineEntry> EventTimelineEntries => Set<EventTimelineEntry>();
+    public DbSet<ReproCase> ReproCases => Set<ReproCase>();
+    public DbSet<ReproStep> ReproSteps => Set<ReproStep>();
+    public DbSet<GameEntity> GameEntities => Set<GameEntity>();
+    public DbSet<ExpectedBehavior> ExpectedBehaviors => Set<ExpectedBehavior>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -79,6 +91,8 @@ public class GameBugDbContext : DbContext, IUnitOfWork
             }
         }
     }
+
+    public void ClearChanges() => ChangeTracker.Clear();
 }
 
 public class IdempotencyRequestEntity

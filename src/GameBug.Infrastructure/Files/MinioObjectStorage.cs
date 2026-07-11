@@ -7,7 +7,7 @@ using Minio.Exceptions;
 
 namespace GameBug.Infrastructure.Files;
 
-public class MinioObjectStorage : IObjectStorage
+public class MinioObjectStorage : IObjectStorage, IObjectStorageReader
 {
     private readonly IMinioClient _minioClient;
     private readonly ObjectStorageOptions _options;
@@ -18,6 +18,64 @@ public class MinioObjectStorage : IObjectStorage
     {
         _minioClient = minioClient;
         _options = options.Value;
+    }
+
+    public async Task<Stream> OpenReadAsync(
+        string storageKey,
+        long maxBytes,
+        string expectedSha256,
+        CancellationToken cancellationToken)
+    {
+        string tempPath = Path.Combine(Path.GetTempPath(), $"gamebug-read-{Guid.NewGuid():N}.tmp");
+        var tempStream = new FileStream(
+            tempPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920,
+            FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+        var getArgs = new GetObjectArgs()
+            .WithBucket(_options.BucketName)
+            .WithObject(storageKey)
+            .WithCallbackStream(async (stream, ct) =>
+            {
+                byte[] buffer = new byte[81920];
+                long total = 0;
+                int read;
+                while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+                {
+                    total += read;
+                    if (total > maxBytes)
+                    {
+                        throw new InvalidDataException("Stored object exceeds the permitted read size.");
+                    }
+
+                    await tempStream.WriteAsync(buffer.AsMemory(0, read), ct);
+                }
+            });
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
+
+        try
+        {
+            await _minioClient.GetObjectAsync(getArgs, timeout.Token);
+            tempStream.Position = 0;
+            string actualChecksum = Convert.ToHexString(await SHA256.HashDataAsync(tempStream, timeout.Token));
+            if (!actualChecksum.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("Stored object checksum verification failed.");
+            }
+
+            tempStream.Position = 0;
+            return tempStream;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            await tempStream.DisposeAsync();
+            throw new ObjectStorageException("Object storage read timed out.", new TimeoutException());
+        }
+        catch (Exception exception)
+        {
+            await tempStream.DisposeAsync();
+            throw new ObjectStorageException("Failed to open read stream from object storage.", exception);
+        }
     }
 
     public async Task<StoredObject> SaveAsync(

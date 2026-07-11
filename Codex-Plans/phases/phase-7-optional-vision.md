@@ -313,6 +313,8 @@ public interface IVisionEvidenceExtractor
 
 Adapter phải:
 
+- Route task `ExtractVisionEvidence` qua profile `vision-evidence`, mặc định `gpt-5.6-terra`; không reuse repro prompt và không gửi raw report/log nếu task không cần.
+
 - Gửi processed image + bounded structured task.
 - Enforce timeout/cancellation/retry/circuit breaker Phase 6.
 - Request structured JSON/schema mode nếu available.
@@ -412,6 +414,7 @@ Implement `ExtractingVisualEvidence` optional stage:
 - Persist extraction/observations/checkpoint.
 - Continue pipeline on optional failure per Phase 6.
 - Resume không reprocess valid cached/completed image.
+- Sau sanitization/privacy preflight, `ExtractingVisualEvidence` được phép chạy song song với deterministic text/log extraction bằng bounded fan-out; orchestration phải join cả hai trước `SynthesizeReproCase`.
 
 Update AnalysisStage enum/public contract/progress mapping theo backward-compatible API rules.
 
@@ -426,6 +429,7 @@ Update AnalysisStage enum/public contract/progress mapping theo backward-compati
 - Suggested action không được nâng thành confirmed vì scene/entity visible.
 - Prompt input/version/hash thay đổi và tạo AnalysisRun/reprocess version mới.
 - No-vision baseline behavior giữ nguyên khi feature disabled.
+- Không gọi thêm một “vision critic agent” trên happy path. Output Terra đi qua region/source/catalog validator deterministic; ambiguous observation bị hạ Unknown/drop thay vì escalation sang Sol.
 
 ### P7-WP14 - Screenshot-context duplicate signal
 
@@ -512,7 +516,9 @@ Từng WP -> WP16 Tests/benchmark/runbook
 ```text
 Vision:Enabled
 Vision:Provider
-Vision:Model
+Vision:Model = gpt-5.6-terra
+Vision:RouteProfile = vision-evidence
+Vision:RoutingPolicyVersion
 Vision:PromptVersion
 Vision:SchemaVersion
 Vision:Timeout
@@ -556,6 +562,8 @@ Logs chỉ chứa IDs, dimensions, hashes rút gọn, versions, counts và safe 
 - [ ] Output region/entity/source binding được validate.
 - [ ] Screenshot không override trusted log/metadata.
 - [ ] Vision disabled/fail không phá text/log core flow.
+- [ ] Vision Terra task không nhận raw report/log ngoài bounded fields và không tự escalation sang Sol.
+- [ ] Text/log và vision branches join deterministically trước repro synthesis.
 - [ ] Cache key gồm tất cả relevant versions và project scope.
 - [ ] Processed artifact private và cleanup idempotent.
 
@@ -570,6 +578,7 @@ Logs chỉ chứa IDs, dimensions, hashes rút gọn, versions, counts và safe 
 7. Re-run same image/config; cache hit và không gọi provider lại.
 8. Bật screenshot duplicate signal với ranker version mới; hard-negative rules vẫn giữ.
 9. Xuất ablation result OFF/ON, không claim improvement nếu chưa đo.
+10. Kiểm tra trace cho thấy Terra vision execution tách khỏi Terra repro execution, với prompt/schema/cache key riêng.
 
 ## 16. Definition of Done
 

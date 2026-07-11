@@ -342,6 +342,7 @@ Output là structured violation list. Severity/action cho violation đến từ 
 - Record input reason codes, policy version và override audit.
 - Conflict/missing impact tạo estimated confidence thấp hoặc NeedsReview.
 - Re-run existing severity regression cases và QA override path Phase 5.
+- Terra chỉ đề xuất severity/reason trong structured repro output. Final severity luôn do policy engine tính/cap/override từ eligible evidence; model confidence không được bypass policy.
 
 ### P6-WP10 - Partial-result orchestrator
 
@@ -367,6 +368,20 @@ Output là structured violation list. Severity/action cho violation đến từ 
 - Không fallback khi input/schema/provenance lỗi permanent.
 - Record primary/fallback executions và final chosen result metadata.
 - Deterministic fallback cho reranker; no-result behavior cho repro generator.
+
+#### Quality-based model escalation
+
+Model escalation khác provider retry/fallback và phải có policy riêng:
+
+1. Chạy default route: Luna cho normalization, Terra cho repro.
+2. Validate schema, provenance và tính quality score deterministic.
+3. Chỉ route `SynthesizeReproCase` sang `gpt-5.6-sol` khi outcome là `NeedsModelEscalation`, input đủ evidence, không có permanent validation/input error, budget còn và model khả dụng.
+4. Validate Sol output bằng cùng schema/provenance/severity/trust policy; Sol không có quyền nâng trust hoặc bỏ qua gate.
+5. Chọn output bằng deterministic quality comparator; không mặc định chọn output của model đắt hơn.
+
+Không escalation nếu thiếu information là nguyên nhân chính; trường hợp đó trả `NeedsMoreInformation`. Giới hạn mặc định một Sol attempt/analysis, có daily budget/concurrency cap, circuit breaker và feature flag kill switch. Lưu primary/escalated execution, trigger reason, score trước/sau và chosen execution ID.
+
+Grounding/hallucination control vẫn là code validator. Có thể chạy critic model như experiment offline, nhưng không dùng cùng model tự xác nhận output làm nguồn trust trong production.
 
 ### P6-WP12 - Redaction, minimum-context và retention hardening
 
@@ -485,6 +500,14 @@ Trust:AllowedActionPolicy
 Providers:FallbackEnabled
 Providers:CircuitBreakerThreshold
 Providers:CircuitBreakerDuration
+Ai:RoutingPolicyVersion
+Ai:Escalation:Enabled
+Ai:Escalation:Model = gpt-5.6-sol
+Ai:Escalation:QualityTrigger
+Ai:Escalation:MaxAttemptsPerAnalysis
+Ai:Escalation:DailyBudget
+Ai:Escalation:MaximumConcurrency
+Ai:Escalation:KillSwitch
 Security:SanitizerPolicyVersion
 Security:MaximumProviderContext
 Security:Retention
@@ -504,6 +527,8 @@ Unknown source/fact/action code phải làm startup validation fail thay vì sil
 - [ ] Fallback/circuit breaker không retry permanent error.
 - [ ] Provider context tối thiểu, sanitized và bounded.
 - [ ] Trust/policy/provider/sanitizer versions được persist.
+- [ ] Sol chỉ chạy bởi versioned quality trigger; missing information không trigger escalation.
+- [ ] Primary và escalated executions append-only; chosen result qua cùng deterministic validators.
 
 ## 15. Demo checkpoint cuối Phase 6
 
@@ -512,6 +537,8 @@ Unknown source/fact/action code phải làm startup validation fail thay vì sil
 3. Tạo platform conflict; result giữ Conflict và chặn action theo policy.
 4. Ép model trả fake source; validator reject/downgrade và ghi violation.
 5. Tắt reranker; deterministic duplicate result vẫn usable với warning.
+6. Ép Terra xuống dưới quality threshold với evidence đầy đủ; Sol chạy đúng một lần, output vẫn bị provenance/severity gate kiểm tra.
+7. Lặp case thiếu evidence; hệ thống trả NeedsMoreInformation và không tốn Sol call.
 6. Làm repro provider fail; evidence được giữ nhưng không có fabricated ReproCase/ticket action.
 7. Query trust/quality report thấy policy, schema, model, parser và source versions.
 

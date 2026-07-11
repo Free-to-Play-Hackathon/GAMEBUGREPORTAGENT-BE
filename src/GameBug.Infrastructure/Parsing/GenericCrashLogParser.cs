@@ -1,0 +1,158 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using GameBug.Application.Abstractions.Parsing;
+using GameBug.Domain.Evidence;
+
+namespace GameBug.Infrastructure.Parsing;
+
+public class GenericCrashLogParser : ILogEvidenceExtractor
+{
+    private static readonly Regex BuildRegex = new(
+        @"\b(?:build|version|ver)\b\s*[:=]\s*([a-zA-Z0-9.-]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex PlatformRegex = new(
+        @"\b(?:platform|os|device)\b\s*[:=]\s*([a-zA-Z0-9.-]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex ExceptionRegex = new(
+        @"(?:Unhandled exception|Exception|Error)\s*:\s*([a-zA-Z0-9._]+)(?:\s*:\s*(.*))?",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex HexAddressRegex = new(
+        @"0x[a-fA-F0-9]+",
+        RegexOptions.Compiled);
+
+    private static readonly Regex TimestampRegex = new(
+        @"^\[?(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:?\d{2}|Z)?)\]?",
+        RegexOptions.Compiled);
+
+    public async Task<ParsedLogResult> ExtractAsync(Stream logStream, CancellationToken cancellationToken)
+    {
+        using var reader = new StreamReader(logStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true);
+
+        string? buildVersion = null;
+        string? platform = null;
+        string? exceptionType = null;
+        string? exceptionMessage = null;
+
+        var stackFrames = new List<string>();
+        var timelineEvents = new List<ParsedTimelineEvent>();
+        int lineNumber = 0;
+
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        {
+            lineNumber++;
+
+            // 1. Detect Build Version
+            if (buildVersion == null)
+            {
+                var match = BuildRegex.Match(line);
+                if (match.Success)
+                {
+                    buildVersion = match.Groups[1].Value;
+                }
+            }
+
+            // 2. Detect Platform
+            if (platform == null)
+            {
+                var match = PlatformRegex.Match(line);
+                if (match.Success)
+                {
+                    platform = match.Groups[1].Value;
+                }
+            }
+
+            // 3. Detect Exception & Message
+            if (exceptionType == null)
+            {
+                var match = ExceptionRegex.Match(line);
+                if (match.Success)
+                {
+                    exceptionType = match.Groups[1].Value;
+                    exceptionMessage = match.Groups[2].Value.Trim();
+                }
+            }
+
+            // 4. Detect Stack Trace Frames
+            bool isStackFrame = false;
+            if (line.TrimStart().StartsWith("at ") || line.Contains("StackTrace") || line.Contains("stack trace"))
+            {
+                isStackFrame = true;
+                string normalizedFrame = HexAddressRegex.Replace(line.Trim(), "0x0");
+                stackFrames.Add(normalizedFrame);
+            }
+
+            // 5. Detect Timeline/Game events
+            if (!isStackFrame && (line.Contains("[GameEvent]") || line.Contains("[Timeline]") || line.Contains("[INFO]") || line.Contains("[WARN]") ||
+                line.Contains("Player") || line.Contains("entered") || line.Contains("clicked") || line.Contains("cast")))
+            {
+                DateTimeOffset? timestamp = null;
+                var tsMatch = TimestampRegex.Match(line);
+                if (tsMatch.Success)
+                {
+                    if (DateTimeOffset.TryParse(tsMatch.Groups[1].Value, out var parsedTs))
+                    {
+                        timestamp = parsedTs;
+                    }
+                }
+
+                string eventName = "GameEvent";
+                if (line.Contains("[GameEvent]")) eventName = "GameEvent";
+                else if (line.Contains("[INFO]")) eventName = "Info";
+                else if (line.Contains("[WARN]")) eventName = "Warning";
+                else if (line.Contains("cast")) eventName = "SkillCast";
+                else if (line.Contains("entered")) eventName = "MapTransition";
+
+                string excerpt = line.Trim();
+                if (excerpt.Length > 256)
+                {
+                    excerpt = excerpt.Substring(0, 256) + "...";
+                }
+
+                timelineEvents.Add(new ParsedTimelineEvent(timestamp, eventName, excerpt, lineNumber));
+            }
+        }
+
+        // Calculate StackSignature if exception and stack frames exist
+        StackSignature? stackSignature = null;
+        if (!string.IsNullOrEmpty(exceptionType) && stackFrames.Any())
+        {
+            var stableFrames = stackFrames
+                .Where(f => !f.Contains("System.") &&
+                            !f.Contains("Microsoft.") &&
+                            !f.Contains("UnityEngine.") &&
+                            !f.Contains("UnityEditor.") &&
+                            !f.Contains("Mono."))
+                .Take(5)
+                .ToList();
+
+            if (!stableFrames.Any())
+            {
+                stableFrames = stackFrames.Take(5).ToList();
+            }
+
+            var frameSummary = string.Join("\n", stableFrames);
+            var rawTextToHash = $"{exceptionType}\n{frameSummary}";
+            var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(rawTextToHash));
+            var hashHex = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+            var sigResult = StackSignature.Create(exceptionType, frameSummary, hashHex);
+            if (sigResult.IsSuccess)
+            {
+                stackSignature = sigResult.Value;
+            }
+        }
+
+        return new ParsedLogResult(
+            exceptionType,
+            exceptionMessage,
+            stackFrames,
+            buildVersion,
+            platform,
+            timelineEvents,
+            stackSignature);
+    }
+}

@@ -36,6 +36,7 @@ Trong phase này pipeline chạy synchronous trong process API qua một executi
 - Evidence normalization, precedence, conflict và timeline cơ bản.
 - Minimal game context lookup từ seed data.
 - Provider-neutral structured AI gateway và một configured provider adapter.
+- Task router với hai route độc lập: Luna report normalization và Terra repro synthesis.
 - Prompt/schema versioning, schema validation và deterministic quality rules.
 - Synchronous ProcessAnalysis adapter, StartAnalysis và GetAnalysisResult API.
 - Persistence, observability, contract/regression tests.
@@ -292,8 +293,8 @@ Tạo migration cho:
 | `schema_version` | varchar(64) | not null |
 | `sanitizer_version` | varchar(64) | nullable đến khi chạy |
 | `parser_version` | varchar(64) | nullable đến khi chạy |
-| `prompt_version` | varchar(64) | nullable đến khi chạy |
-| `model_provider/model_name` | varchar | nullable đến khi gọi AI |
+| `routing_policy_version` | varchar(64) | not null khi bắt đầu AI stages |
+| `selected_repro_execution_id` | uuid | nullable; FK đến chosen validated execution |
 | `started_at/completed_at` | timestamptz | nullable |
 | `warnings_json` | jsonb | safe structured warnings |
 | `error_code` | varchar(80) | nullable |
@@ -314,6 +315,23 @@ Unique/index:
 - Unique một ReproCase trên AnalysisRun.
 - Unique step order trong ReproCase.
 - Confidence check `0 <= value <= 1`.
+
+#### `analysis_ai_executions`
+
+Không nhét Luna và Terra vào một cặp `model_provider/model_name` trên `analysis_runs`. Mỗi call/attempt là một row append-only:
+
+| Column | Nội dung |
+|---|---|
+| `analysis_run_id`, `execution_id` | Run/call identity |
+| `task`, `route_profile`, `routing_reason` | Task và lý do chọn route allowlisted |
+| `provider`, `requested_model`, `resolved_model` | Model cấu hình và model thực tế |
+| `prompt_version`, `schema_version`, `routing_policy_version` | Reproducibility identity |
+| `attempt`, `status`, `safe_error_code` | Execution lifecycle |
+| `latency_ms`, token/usage fields nullable | Cost/operations metadata an toàn |
+| `provider_request_id_hash` | Correlation an toàn; không raw secret/payload |
+| `output_hash`, `is_selected` | Chỉ hash/chosen marker; validated output nằm trong typed tables/checkpoint |
+
+Unique execution identity/idempotency guard phải ngăn duplicate persistence nhưng không claim provider call exactly-once. Không update attempt cũ khi fallback/escalation; selected pointer chỉ trỏ output đã qua validator.
 
 **Acceptance:** Migration apply/rollback trên PostgreSQL test container; repository round-trip không mất enum, source location hoặc UTC.
 
@@ -490,6 +508,32 @@ Infrastructure adapter phải:
 
 Phase 2 chỉ retry tối đa một lần cho transient call hoặc syntactic schema repair. Full retry/checkpoint thuộc Phase 3.
 
+#### P2 model router và execution profiles
+
+Thêm `IAiTaskRouter` để resolve cấu hình theo `AiTask`; `ProcessAnalysis` không đọc `OpenAIOptions` và không hardcode model name:
+
+```csharp
+public interface IAiTaskRouter
+{
+    AiRoute Resolve(AiTask task, AiRoutingContext context);
+}
+
+public sealed record AiRoute(
+    string Profile,
+    string Provider,
+    string Model,
+    string PromptVersion,
+    string SchemaVersion,
+    string RoutingPolicyVersion);
+```
+
+Phase 2 có hai AI executions tách schema:
+
+1. `NormalizeBugReport` dùng profile `report-understanding` (`gpt-5.6-luna`) để chuẩn hóa symptom/action/context còn mơ hồ; không parse log và không được tạo source ID.
+2. `SynthesizeReproCase` dùng profile `repro-synthesis` (`gpt-5.6-terra`) trên normalized report + evidence deterministic.
+
+Nếu Luna fail/invalid, pipeline vẫn có thể dùng deterministic report facts và ghi warning. Nếu Terra fail/invalid sau bounded repair, không tạo fabricated `ReproCase`. Sol chưa tự động chạy trong Phase 2; escalation được thêm ở Phase 6 sau khi có quality gate và cost controls.
+
 ### P2-WP10 - Prompt package v1
 
 **Owner:** AI Backend + Backend Core  
@@ -559,8 +603,10 @@ Mark ExtractingEvidence
 Parse + normalize + resolve evidence + timeline
 Mark GroundingGameContext
 Load/normalize catalog context
+Run NormalizeBugReport(Luna profile); fallback to deterministic report facts
 Mark GeneratingRepro
-Generate typed repro + deterministic validation/policy
+Run SynthesizeReproCase(Terra profile)
+Apply deterministic schema/provenance/severity validation and quality pre-check
 Mark PersistingResult
 Persist evidence/repro/version metadata in short transaction
 Complete run
@@ -580,6 +626,9 @@ Idempotency:
 - Same key + same request trả cùng analysis ID.
 - Same report/config đang active không tạo run mới.
 - Reprocess với config version mới tạo run version tiếp theo.
+- Active-run/config hash phải gồm routing-policy version và route của từng AI task, không chỉ một global model name.
+
+Configuration Phase 2 phải validate `Ai:Routes:ReportUnderstanding` và `Ai:Routes:ReproSynthesis`, gồm provider/model/prompt/schema/timeout/max-output. API key nằm trong secret store. Metadata ghi model thực tế từ gateway result; tuyệt đối không ghi chuỗi hardcode như `gemini-1.5-flash` hoặc `gpt-5.6-terra` trong handler.
 
 ### P2-WP13 - Analysis endpoints và error mapping
 
@@ -722,9 +771,11 @@ Từ golden report đã tạo ở Phase 1:
 3. Parser trích đúng build `1.4.12`, Android 14, Samsung S22, exception và stable frame line 219.
 4. Evidence resolver tạo source references hợp lệ.
 5. Repro generator trả structured JSON; deterministic validator không cho unsupported confirmed step.
-6. GET status trả Completed; GET result trả evidence + repro + empty duplicate candidates.
-7. Gọi lại cùng key/request trả cùng analysis ID.
-8. Tắt/misconfigure provider trong negative scenario và xác nhận run Failed với stable Problem Details, không fabricated result.
+6. Execution metadata chứng minh normalization dùng resolved Luna route và repro dùng resolved Terra route; không có model metadata hardcode.
+7. GET status trả Completed; GET result trả evidence + repro + empty duplicate candidates.
+8. Gọi lại cùng key/request trả cùng analysis ID.
+9. Làm Luna unavailable và xác nhận deterministic report-fact fallback vẫn cho phép Terra chạy với warning khi input đủ.
+10. Tắt/misconfigure Terra route và xác nhận run Failed với stable Problem Details, không fabricated result.
 
 Checkpoint phải có functional/regression test tự động.
 
@@ -736,6 +787,7 @@ Checkpoint phải có functional/regression test tự động.
 - [ ] Text-only, missing field và conflict behavior đúng.
 - [ ] Build/platform/steps không bị bịa khi thiếu evidence.
 - [ ] Analysis version/idempotency đúng; run cũ không bị overwrite.
+- [ ] Luna/Terra routes có schema/prompt/model metadata riêng và route change làm invalid đúng checkpoint/config hash.
 
 ### Trust và security
 
@@ -754,4 +806,3 @@ Checkpoint phải có functional/regression test tự động.
 ## 13. Exit gate chính thức
 
 Phase 2 chỉ đóng khi golden flow chạy ổn định nhiều lần từ report đã lưu, negative cases không tạo fabricated result và ProcessAnalysis application orchestration không phụ thuộc HTTP context. Điều kiện cuối cùng này bắt buộc để Phase 3 chuyển execution sang Worker mà không viết lại business pipeline.
-

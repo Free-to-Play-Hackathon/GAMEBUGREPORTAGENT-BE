@@ -352,6 +352,8 @@ public interface IEmbeddingProvider
 
 Adapter yêu cầu:
 
+- Default OpenAI profile dùng `text-embedding-3-small`; dimension phải lấy từ cấu hình đã migration và kiểm tra với response, không suy đoán runtime.
+
 - Validate finite float values và exact dimension.
 - Bounded batch size, timeout, cancellation và transient retry.
 - Record provider/model/version/latency/usage an toàn.
@@ -449,6 +451,13 @@ Tuning dùng tuning split; mọi change weights/threshold phải tạo benchmark
 
 Reranker input giới hạn top candidates và chỉ gồm sanitized structured signals. Schema output:
 
+Model routing:
+
+- Candidate retrieval/order ban đầu luôn do exact + lexical + pgvector + deterministic scoring thực hiện.
+- `ExplainDuplicate` mặc định dùng `gpt-5.6-luna` để tạo short explanation từ allowlisted signals; không được đổi core score/order.
+- Chỉ route sang `gpt-5.6-terra` khi candidate thuộc ambiguity policy đã version hóa, ví dụ signals mạnh nhưng conflict material; không dùng Sol trong online duplicate path.
+- Có thể tắt hoàn toàn AI explanation/reranker mà kết quả deterministic vẫn usable.
+
 - Ticket ID từ allowlist.
 - Classification từ enum.
 - Matching/conflicting signal IDs từ allowlist.
@@ -469,6 +478,7 @@ Stage input hash gồm:
 - Embedding model/version.
 - Ranker weights/threshold/version.
 - Reranker prompt/schema/model config.
+- Routing-policy/profile version và routing reason nếu Luna/Terra execution được bật.
 
 Stage flow: build document -> embed new case -> retrieve -> merge -> signals -> rules/rerank -> persist matches/checkpoint. Persist matches atomically và chuyển run sang `AwaitingQaReview` sau final result validation.
 
@@ -570,8 +580,14 @@ DuplicateDetection:Thresholds
 DuplicateDetection:RankerVersion
 DuplicateDetection:EnableAiReranker
 DuplicateDetection:RerankerCandidateLimit
+Ai:Routes:DuplicateExplanation:Provider
+Ai:Routes:DuplicateExplanation:Model = gpt-5.6-luna
+Ai:Routes:DuplicateExplanation:EscalationModel = gpt-5.6-terra
+Ai:Routes:DuplicateExplanation:PromptVersion
+Ai:Routes:DuplicateExplanation:SchemaVersion
+Ai:RoutingPolicyVersion
 Embedding:Provider
-Embedding:Model
+Embedding:Model = text-embedding-3-small
 Embedding:Dimension
 Embedding:Version
 Embedding:BatchSize
@@ -591,6 +607,7 @@ Weights không âm, available weights có tổng > 0, threshold tăng hợp lệ
 - [ ] Embedding/model/ranker/index versions được persist.
 - [ ] Hard negative rules không nằm riêng trong prompt.
 - [ ] Provider failure có deterministic fallback/partial behavior.
+- [ ] Luna/Terra explanation không thay core candidate score/order và có routing reason được persist.
 
 ## 13. Demo checkpoint cuối Phase 4
 
@@ -600,8 +617,9 @@ Weights không âm, available weights có tổng > 0, threshold tăng hợp lệ
 4. `BUG-142` xuất hiện top 3, kỳ vọng top 1, với same signature/phase/build explanation.
 5. Chạy same-wording/different-signature hard negative và xác nhận không `LikelyDuplicate`.
 6. Tắt reranker và xác nhận deterministic results vẫn usable.
-7. Re-deliver stage job và xác nhận không duplicate matches/embedding calls đã cache.
-8. Chạy held-out benchmark, lưu versions và per-case errors.
+7. Bật Luna explanation rồi force ambiguity route sang Terra; ticket/signal references vẫn allowlist-valid và order không đổi.
+8. Re-deliver stage job và xác nhận không duplicate matches/embedding calls đã cache.
+9. Chạy held-out benchmark, lưu versions và per-case errors.
 
 ## 14. Definition of Done
 
@@ -617,4 +635,3 @@ Weights không âm, available weights có tổng > 0, threshold tăng hợp lệ
 ## 15. Exit gate chính thức
 
 Phase 4 chỉ đóng khi `BUG-142` nằm trong top 3, hard negatives không bị semantic similarity đẩy thành high-confidence duplicate, và benchmark có dataset/index/model/ranker versions đầy đủ. Đầu ra bàn giao Phase 5 là immutable candidate snapshot có thể dùng làm decision gate backend.
-

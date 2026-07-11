@@ -1,0 +1,15 @@
+<UNTRUSTED_DATA>
+Bug Report Title: {ReportTitle}
+Bug Report Description: {ReportDescription}
+
+Evidence Facts:
+{EvidenceFacts}
+
+Event Timeline:
+{EventTimeline}
+
+Game Context (Entities & Behaviors):
+{GameContext}
+</UNTRUSTED_DATA>
+
+Please generate the reproduction case matching the schema.

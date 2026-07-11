@@ -1,8 +1,11 @@
+using GameBug.Application.Abstractions.AI;
 using GameBug.Application.Abstractions.Files;
 using GameBug.Application.Abstractions.Observability;
+using GameBug.Application.Abstractions.Parsing;
 using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Abstractions.Security;
 using GameBug.Application.Abstractions.Time;
+using GameBug.Infrastructure.Parsing;
 using GameBug.Infrastructure.Files;
 using GameBug.Infrastructure.Observability;
 using GameBug.Infrastructure.Persistence;
@@ -34,6 +37,10 @@ public static class DependencyInjection
         // Repositories
         services.AddScoped<IBugReportRepository, BugReportRepository>();
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
+        services.AddScoped<IAnalysisRunRepository, AnalysisRunRepository>();
+        services.AddScoped<IGameContextRepository, GameContextRepository>();
+        services.AddSingleton<IContentSanitizer, ContentSanitizer>();
+        services.AddSingleton<ILogEvidenceExtractor, GenericCrashLogParser>();
 
         // MinIO Object Storage
         services.AddOptions<ObjectStorageOptions>()
@@ -45,7 +52,9 @@ public static class DependencyInjection
             .Validate(options => options.TimeoutSeconds is > 0 and <= 120, "ObjectStorage:TimeoutSeconds must be between 1 and 120.")
             .ValidateOnStart();
 
-        services.AddScoped<IObjectStorage, MinioObjectStorage>();
+        services.AddScoped<MinioObjectStorage>();
+        services.AddScoped<IObjectStorage>(sp => sp.GetRequiredService<MinioObjectStorage>());
+        services.AddScoped<IObjectStorageReader>(sp => sp.GetRequiredService<MinioObjectStorage>());
 
         services.AddSingleton<IMinioClient>(sp =>
         {
@@ -69,6 +78,30 @@ public static class DependencyInjection
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddSingleton<IClock, SystemClock>();
 
+        // Gemini AI Gateway
+        services.AddOptions<AI.AiRoutingOptions>()
+            .Bind(configuration.GetSection(AI.AiRoutingOptions.SectionName))
+            .Validate(options => IsValidRoute(options.ReportUnderstanding), "Ai:ReportUnderstanding is invalid.")
+            .Validate(options => IsValidRoute(options.ReproSynthesis), "Ai:ReproSynthesis is invalid.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.RoutingPolicyVersion), "Ai:RoutingPolicyVersion is required.")
+            .ValidateOnStart();
+        services.AddSingleton<IAiTaskRouter, AI.ConfiguredAiTaskRouter>();
+        services.AddOptions<AI.Providers.GeminiOptions>()
+            .Bind(configuration.GetSection(AI.Providers.GeminiOptions.SectionName))
+            .Validate(options => !string.IsNullOrWhiteSpace(options.Model), "Ai:Gemini:Model is required.")
+            .Validate(options => options.TimeoutSeconds is > 0 and <= 120, "Ai:Gemini:TimeoutSeconds must be between 1 and 120.")
+            .ValidateOnStart();
+        services.AddHttpClient<IStructuredAiGateway, AI.Providers.GeminiStructuredAiGateway>();
+
         return services;
     }
+
+    private static bool IsValidRoute(AI.AiRouteOptions route) =>
+        !string.IsNullOrWhiteSpace(route.Profile) &&
+        !string.IsNullOrWhiteSpace(route.Provider) &&
+        !string.IsNullOrWhiteSpace(route.Model) &&
+        !string.IsNullOrWhiteSpace(route.PromptVersion) &&
+        !string.IsNullOrWhiteSpace(route.SchemaVersion) &&
+        route.TimeoutSeconds is > 0 and <= 120 &&
+        route.MaxOutputTokens > 0;
 }

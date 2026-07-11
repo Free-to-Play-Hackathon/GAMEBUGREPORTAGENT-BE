@@ -1,0 +1,91 @@
+{
+  "type": "OBJECT",
+  "properties": {
+    "title": {
+      "type": "STRING",
+      "description": "Descriptive title of the reproduction case"
+    },
+    "buildVersion": {
+      "type": "STRING",
+      "description": "Normalized build version or 'Unknown'"
+    },
+    "platform": {
+      "type": "STRING",
+      "description": "Target platform or 'Unknown'"
+    },
+    "preconditions": {
+      "type": "STRING",
+      "description": "List of preconditions required to set up the repro"
+    },
+    "steps": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "order": {
+            "type": "INTEGER"
+          },
+          "description": {
+            "type": "STRING"
+          },
+          "stepType": {
+            "type": "STRING",
+            "enum": [
+              "Confirmed",
+              "SuggestedToVerify"
+            ]
+          },
+          "sourceId": {
+            "type": "STRING",
+            "description": "The GUID of the evidence source if Confirmed, or null"
+          },
+          "inferenceReason": {
+            "type": "STRING",
+            "description": "The logic or reason if SuggestedToVerify, or null"
+          }
+        },
+        "required": [
+          "order",
+          "description",
+          "stepType"
+        ]
+      }
+    },
+    "expectedResult": {
+      "type": "STRING"
+    },
+    "actualResult": {
+      "type": "STRING"
+    },
+    "severityEstimate": {
+      "type": "STRING",
+      "enum": [
+        "Low",
+        "Medium",
+        "High",
+        "Critical"
+      ]
+    },
+    "severityReason": {
+      "type": "STRING"
+    },
+    "missingInformation": {
+      "type": "STRING"
+    },
+    "confidence": {
+      "type": "NUMBER"
+    }
+  },
+  "required": [
+    "title",
+    "buildVersion",
+    "platform",
+    "preconditions",
+    "steps",
+    "expectedResult",
+    "actualResult",
+    "severityEstimate",
+    "severityReason",
+    "confidence"
+  ]
+}

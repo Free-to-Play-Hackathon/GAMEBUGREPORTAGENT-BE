@@ -58,6 +58,27 @@ dotnet test tests/GameBug.IntegrationTests
 dotnet test tests/GameBug.Api.FunctionalTests
 ```
 
+---
+
+## 🎬 Kịch Bản Demo Tự Động (Runbook / Automated Demo)
+Để kiểm tra trực tiếp luồng hoạt động tiếp nhận lỗi game cùng cơ chế Idempotency, bạn có thể sử dụng file script PowerShell `demo.ps1` có sẵn:
+
+1. Chạy API Server trước:
+   ```bash
+   dotnet run --project src/GameBug.Api
+   ```
+2. Mở một terminal mới và chạy:
+   ```powershell
+   ./demo.ps1
+   ```
+Script sẽ tự động:
+- Kiểm tra trạng thái API.
+- Tạo tệp đính kèm giả lập (với PNG magic bytes hợp lệ).
+- Gửi báo cáo lỗi game lần đầu (mong đợi `201 Created`).
+- Gửi lại chính xác request cũ để chứng minh cơ chế **Replay** (mong đợi trùng `Report ID`).
+- Gửi request mới sử dụng lại Idempotency Key nhưng đổi nội dung để chứng minh cơ chế **Conflict** (mong đợi `409 Conflict`).
+- Truy vấn lấy thông tin chi tiết của Bug Report vừa tạo.
+
 ## Cấu hình local và reset dữ liệu
 
 Tạo file môi trường local trước khi khởi động container:

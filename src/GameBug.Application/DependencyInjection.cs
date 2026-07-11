@@ -19,6 +19,10 @@ public static class DependencyInjection
         services.AddValidatorsFromAssembly(assembly);
         services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
 
+        services.AddTransient<Evidence.EvidenceResolver>();
+        services.AddTransient<Evidence.EventTimelineBuilder>();
+        services.AddTransient<ReproCases.SeverityPolicy>();
+
         return services;
     }
 }

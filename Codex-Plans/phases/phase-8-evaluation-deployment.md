@@ -75,10 +75,28 @@ Mỗi EvaluationRun phải lưu:
 - Source commit/build/image digest.
 - API/Worker code version.
 - Schema, sanitizer, parser, prompt, model, embedding, ranker, trust, vision và catalog versions.
+- Per-task route profile, requested/resolved model, routing-policy version, escalation trigger/chosen execution và provider availability snapshot.
 - Effective feature flags/thresholds/weights hash.
 - Started/completed timestamps, environment label và random seed nếu có.
 
 Không có đủ identity trên thì run là `InvalidForClaim`, dù metric đã tính được.
+
+### Model-routing evaluation matrix
+
+Evaluation phải so paired profiles trên cùng immutable cases, không kết luận từ model confidence:
+
+| Profile | Mục đích |
+|---|---|
+| `baseline-current` | Provider/model hiện tại để đo migration regression |
+| `luna-terra-default` | Luna normalization + Terra repro; production candidate |
+| `terra-only-ablation` | Đo Luna stage có thực sự tăng quality/cost efficiency không |
+| `luna-terra-sol-escalation` | Đo incremental quality, escalation rate và chi phí của Sol |
+| `vision-off` / `vision-terra` | Đo tác động vision độc lập với text baseline |
+| `duplicate-deterministic` / `duplicate-luna-explanation` | Chứng minh AI explanation không làm đổi retrieval correctness |
+
+Report bắt buộc có quality metrics, latency p50/p95, input/output tokens, estimated cost per analysis, fallback/escalation rate, invalid-schema rate và unsupported-step rate theo từng route. Chỉ promote profile nếu trust metrics không regression ngoài ngưỡng đã chốt và cost/latency nằm trong budget.
+
+Release startup smoke test phải gọi/verify model availability theo environment hoặc dùng provider capability endpoint phù hợp. Nếu account chưa có GPT-5.6 preview access, deployment fail-fast khi route required; optional Sol/vision route tự disable có warning rõ theo policy. Không âm thầm map một model ID khác mà vẫn ghi metadata GPT-5.6.
 
 ### Split discipline
 
@@ -708,6 +726,8 @@ Evaluation WP01-07 có thể chạy song song với deployment WP08-13 sau khi c
 - [ ] Object storage private/bucket/retention đúng.
 - [ ] Queue names/concurrency/lease/retry đúng.
 - [ ] Provider/model/embedding/vector dimension đúng.
+- [ ] Account/environment thực sự có quyền gọi Luna/Terra và optional Sol; resolved model khớp metadata.
+- [ ] Per-task routes, routing policy, escalation budget/concurrency/kill switch đúng.
 - [ ] Prompt/schema/parser/ranker/trust/vision versions frozen.
 - [ ] Feature flags đúng; Vision disabled không cần secret.
 - [ ] Auth/policies/rate/body/file limits đúng.
@@ -725,6 +745,7 @@ Evaluation WP01-07 có thể chạy song song với deployment WP08-13 sau khi c
 | Analysis | Async retry/resume/checkpoint/no duplicate result |
 | Evidence | Sanitization, provenance, conflict, uncertainty |
 | Repro | Structured schema, supported steps, severity policy |
+| Model routing | Luna/Terra task isolation, Sol gate/budget, route metadata và deterministic fallback |
 | Duplicate | Hybrid retrieval, hard negatives, Recall@3 |
 | Decision | Duplicate gate, concurrency, filing idempotency |
 | Vision | Safe optional stage, OFF/failure baseline |
@@ -742,10 +763,11 @@ Evaluation WP01-07 có thể chạy song song với deployment WP08-13 sau khi c
 4. Chạy golden report -> analysis -> `BUG-142` -> MarkDuplicate.
 5. Chạy Vision OFF/provider failure scenario, core result vẫn usable.
 6. Chạy held-out evaluation và export measured metrics với complete identity.
-7. Restart API/Worker giữa run và chứng minh resume/idempotency.
-8. Restore snapshot trong isolated environment và chạy golden case.
-9. Chạy provider-offline fallback package, artifact được ghi nhãn precomputed rõ.
-10. Kiểm tra logs/traces không chứa raw secret/report/log/image/prompt.
+7. Chạy paired `baseline-current`, `luna-terra-default` và escalation ablation; xuất quality/latency/cost theo route.
+8. Restart API/Worker giữa run và chứng minh resume/idempotency.
+9. Restore snapshot trong isolated environment và chạy golden case.
+10. Chạy provider-offline fallback package, artifact được ghi nhãn precomputed rõ.
+11. Kiểm tra logs/traces không chứa raw secret/report/log/image/prompt.
 
 ## 21. Definition of Done
 
@@ -755,6 +777,7 @@ Evaluation WP01-07 có thể chạy song song với deployment WP08-13 sau khi c
 - [ ] Metrics có formula/version/numerator/denominator/sample validity.
 - [ ] Timing báo paired median/IQR/sample count.
 - [ ] Run lưu đầy đủ code/data/model/component/config identity.
+- [ ] Báo cáo paired model-routing profiles có quality, p50/p95 latency, token/cost và escalation/fallback rate.
 - [ ] Target và measured result không bị trộn.
 
 ### Deployment

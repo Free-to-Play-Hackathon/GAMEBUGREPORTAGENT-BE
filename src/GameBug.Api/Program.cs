@@ -65,6 +65,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.MapCreateBugReport();
 app.MapGetBugReport();
+app.MapAnalysisEndpoints();
 
 app.MapGet("/health/live", () => Results.Ok(new { Status = "Healthy" }));
 app.MapGet("/health/ready", async (

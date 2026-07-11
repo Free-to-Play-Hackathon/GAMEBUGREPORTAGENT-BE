@@ -49,9 +49,20 @@ public static class BugReportContractMapper
         {
             "Auth.Unauthorized" => (StatusCodes.Status401Unauthorized, "UNAUTHORIZED", error.Description, false),
             "BugReport.NotFound" => (StatusCodes.Status404NotFound, "REPORT_NOT_FOUND", error.Description, false),
+            "Analysis.NotFound" => (StatusCodes.Status404NotFound, "ANALYSIS_NOT_FOUND", error.Description, false),
             "BugReport.Forbidden" => (StatusCodes.Status403Forbidden, "FORBIDDEN", error.Description, false),
             "Idempotency.Conflict" => (StatusCodes.Status409Conflict, "IDEMPOTENCY_CONFLICT", error.Description, false),
             "Idempotency.Processing" => (StatusCodes.Status409Conflict, "IDEMPOTENCY_PROCESSING", error.Description, true),
+            "Analysis.AlreadyInProgress" => (StatusCodes.Status409Conflict, "ANALYSIS_ALREADY_IN_PROGRESS", error.Description, false),
+            "Analysis.ResultNotReady" => (StatusCodes.Status409Conflict, "ANALYSIS_RESULT_NOT_READY", error.Description, true),
+            "Validation.IdempotencyKeyRequired" => (StatusCodes.Status400BadRequest, "VALIDATION_FAILED", error.Description, false),
+            "NO_SUPPORTED_LOG_CONTENT" => (StatusCodes.Status422UnprocessableEntity, "NO_SUPPORTED_LOG_CONTENT", error.Description, false),
+            "PROVIDER_TIMEOUT" => (StatusCodes.Status503ServiceUnavailable, "PROVIDER_TIMEOUT", error.Description, true),
+            "PROVIDER_AUTH_FAILURE" => (StatusCodes.Status503ServiceUnavailable, "PROVIDER_AUTH_FAILURE", error.Description, false),
+            "PROVIDER_FAILURE" => (StatusCodes.Status503ServiceUnavailable, "PROVIDER_FAILURE", error.Description, true),
+            "INVALID_AI_SCHEMA" => (StatusCodes.Status502BadGateway, "INVALID_AI_SCHEMA", error.Description, false),
+            "PROVENANCE_VALIDATION_FAILED" => (StatusCodes.Status502BadGateway, "PROVENANCE_VALIDATION_FAILED", error.Description, false),
+            "ANALYSIS_FAILED" => (StatusCodes.Status500InternalServerError, "ANALYSIS_FAILED", error.Description, false),
             "BugReport.DescriptionRequired" or "BugReport.DescriptionInvalidLength" or "BugReport.CreatedByRequired" =>
                 (StatusCodes.Status400BadRequest, "VALIDATION_FAILED", error.Description, false),
             "BugReport.MaxAttachmentsExceeded" or "BugReport.AttachmentEmpty" or "BugReport.AttachmentTooLarge" or "BugReport.DuplicateAttachmentFileName" or "BugReport.InvalidImageFormat" or "BugReport.AttachmentMetadataMismatch" or "BugReport.StorageKeyContainsFileName" =>

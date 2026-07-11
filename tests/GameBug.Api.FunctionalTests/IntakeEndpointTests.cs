@@ -63,4 +63,19 @@ public sealed class IntakeEndpointTests : IClassFixture<WebApplicationFactory<Pr
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.GetValues("X-Correlation-ID").Single().Should().NotContain(" ");
     }
+
+    [Fact]
+    public async Task StartAnalysis_ShouldRequireIdempotencyKey()
+    {
+        using var content = new StringContent(
+            """{"requestedSchemaVersion":"analysis-result-v1","configurationProfile":"default"}""",
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await _client.PostAsync(
+            $"/api/v1/bug-reports/{Guid.NewGuid()}/analyses", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
+    }
 }

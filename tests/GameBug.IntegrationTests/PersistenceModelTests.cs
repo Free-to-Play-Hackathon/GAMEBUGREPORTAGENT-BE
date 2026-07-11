@@ -1,6 +1,7 @@
 using FluentAssertions;
 using GameBug.Domain.BugReports;
 using GameBug.Infrastructure.Persistence;
+using GameBug.Domain.Analysis;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
@@ -14,6 +15,20 @@ public sealed class PersistenceModelTests
             .UseNpgsql("Host=localhost;Database=model_only;Username=test;Password=test")
             .Options;
         return new GameBugDbContext(options);
+    }
+
+    [Fact]
+    public void PhaseTwoModel_ShouldContainHardeningConstraintsAndActiveRunIndex()
+    {
+        using var context = CreateContext();
+        var run = context.Model.FindEntityType(typeof(AnalysisRun));
+
+        run.Should().NotBeNull();
+        run!.FindProperty(nameof(AnalysisRun.ResultReference)).Should().NotBeNull();
+        run.GetIndexes().Should().Contain(index =>
+            index.IsUnique && index.GetFilter() != null &&
+            index.Properties.Select(property => property.Name)
+                .SequenceEqual(new[] { nameof(AnalysisRun.ReportId), nameof(AnalysisRun.ConfigurationHash) }));
     }
 
     [Fact]

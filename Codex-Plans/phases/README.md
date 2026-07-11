@@ -10,6 +10,19 @@ Khong bat dau P2 (tracker that, RBAC day du, auto-test generation, Kubernetes/mi
 
 ## 2. Quyet dinh backend da chot
 
+### AI execution policy đã chốt
+
+- Hệ thống dùng **stage-based orchestration + model routing**, không tạo một agent cho mỗi bước.
+- `gpt-5.6-luna` là tier mặc định cho report understanding và duplicate explanation chi phí thấp.
+- `gpt-5.6-terra` là tier mặc định cho structured repro synthesis và optional vision extraction.
+- `gpt-5.6-sol` chỉ là escalation/benchmark tier khi Terra không đạt quality gate; không nằm trên happy path.
+- `text-embedding-3-small` tạo vector cho duplicate retrieval; PostgreSQL + pgvector thực hiện candidate search, không dùng LLM để search ban đầu.
+- Parse log, schema/provenance validation, severity override, trust score, hard duplicate rules và allowed actions phải deterministic trong code.
+- Model ID là configuration theo task/profile, không hardcode trong Application/Domain. Mỗi execution lưu provider, requested/resolved model, prompt/schema version, routing reason và usage an toàn.
+- GPT-5.6 đang là preview/availability-dependent; startup và release checklist phải kiểm tra account có quyền dùng model. Profile tương thích đã benchmark được phép thay model mà không đổi Domain contract.
+
+Các phase bị tác động trực tiếp: Phase 0, 2, 3, 4, 6, 7 và 8. Phase 1 không gọi AI; Phase 5 giữ human decision/revision workflow và chỉ tiêu thụ output đã validated.
+
 `proposal.md`, `backend-structure.md` va bo phase hien da thong nhat:
 
 - ASP.NET Core modular monolith.

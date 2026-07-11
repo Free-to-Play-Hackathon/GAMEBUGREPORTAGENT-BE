@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameBug.Application\GameBug.Application.csproj" />
+    <ProjectReference Include="..\..\src\GameBug.Infrastructure\GameBug.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
