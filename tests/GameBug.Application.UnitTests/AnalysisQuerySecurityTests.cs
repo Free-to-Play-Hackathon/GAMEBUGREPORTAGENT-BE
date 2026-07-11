@@ -80,6 +80,7 @@ public sealed class AnalysisQuerySecurityTests
         var run = AnalysisRun.Create(AnalysisRunId.CreateUnique(), reportId, 1, "input", "config", "schema").Value;
         run.StartProcessing("sanitizer", "parser", "routing", DateTimeOffset.UtcNow);
         run.TransitionStage(AnalysisStage.ExtractingEvidence);
+        run.TransitionStage(AnalysisStage.ExtractingVisualEvidence);
         run.TransitionStage(AnalysisStage.GroundingGameContext);
         run.TransitionStage(AnalysisStage.GeneratingRepro);
         run.TransitionStage(AnalysisStage.PersistingResult);
@@ -95,6 +96,29 @@ public sealed class AnalysisQuerySecurityTests
 
         result.Value.Status.Should().Be("completed");
         result.Value.Stage.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetStatus_ShouldSerializeVisualEvidenceStage()
+    {
+        var runs = Substitute.For<IAnalysisRunRepository>();
+        var reports = Substitute.For<IBugReportRepository>();
+        var user = Substitute.For<ICurrentUser>();
+        var reportId = BugReportId.CreateUnique();
+        var run = AnalysisRun.Create(AnalysisRunId.CreateUnique(), reportId, 1, "input", "config", "schema").Value;
+        run.StartProcessing("sanitizer", "parser", "routing", DateTimeOffset.UtcNow);
+        run.TransitionStage(AnalysisStage.ExtractingEvidence);
+        run.TransitionStage(AnalysisStage.ExtractingVisualEvidence);
+        var report = BugReport.Submit(reportId, "A sufficiently long description", null, null, null, null, null, "owner", DateTimeOffset.UtcNow).Value;
+        runs.GetAsync(run.Id, Arg.Any<CancellationToken>()).Returns(run);
+        reports.GetAsync(reportId, Arg.Any<CancellationToken>()).Returns(report);
+        user.IsAuthenticated.Returns(true);
+        user.UserId.Returns("owner");
+
+        var result = await new GetAnalysisQueryHandler(runs, reports, user)
+            .Handle(new GetAnalysisQuery(run.Id.Value), CancellationToken.None);
+
+        result.Value.Stage.Should().Be("extractingVisualEvidence");
     }
 
     [Fact]

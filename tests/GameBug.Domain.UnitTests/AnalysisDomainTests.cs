@@ -22,6 +22,24 @@ public sealed class AnalysisDomainTests
     }
 
     [Fact]
+    public void TransitionStage_ShouldRequireVisualEvidenceBeforeGrounding()
+    {
+        var run = AnalysisRun.Create(
+            AnalysisRunId.CreateUnique(), BugReportId.CreateUnique(), 1, "input", "config", "schema").Value;
+        run.StartProcessing("sanitizer", "parser", "routingPolicy", DateTimeOffset.UtcNow);
+
+        run.TransitionStage(AnalysisStage.ExtractingEvidence).IsSuccess.Should().BeTrue();
+        var skippedVisual = run.TransitionStage(AnalysisStage.GroundingGameContext);
+
+        skippedVisual.IsFailure.Should().BeTrue();
+        run.TransitionStage(AnalysisStage.ExtractingVisualEvidence).IsSuccess.Should().BeTrue();
+        run.ProgressPercent.Should().Be(45);
+        run.CompleteStage(AnalysisStage.ExtractingVisualEvidence);
+        run.ProgressPercent.Should().Be(50);
+        run.TransitionStage(AnalysisStage.GroundingGameContext).IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
     public void ConflictEvidence_ShouldRequireIndependentSources()
     {
         var source = new EvidenceSource(EvidenceSourceType.Log, "attachment-1", 1, 1, "safe", "hash", TrustLevel.Observed);

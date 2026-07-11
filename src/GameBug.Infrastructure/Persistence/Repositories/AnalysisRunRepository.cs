@@ -57,16 +57,24 @@ public class AnalysisRunRepository : IAnalysisRunRepository
 
     public async Task SaveEvidencePackAsync(EvidencePack evidencePack, CancellationToken cancellationToken)
     {
-        foreach (var fact in evidencePack.Facts)
-        {
-            await _dbContext.EvidenceFacts.AddAsync(fact, cancellationToken);
-            _dbContext.Entry(fact).Property("AnalysisRunId").CurrentValue = evidencePack.AnalysisRunId;
-        }
+        await SaveEvidenceFactsAsync(evidencePack.AnalysisRunId, evidencePack.Facts, cancellationToken);
 
         foreach (var entry in evidencePack.Timeline)
         {
             await _dbContext.EventTimelineEntries.AddAsync(entry, cancellationToken);
             _dbContext.Entry(entry).Property("AnalysisRunId").CurrentValue = evidencePack.AnalysisRunId;
+        }
+    }
+
+    public async Task SaveEvidenceFactsAsync(
+        AnalysisRunId analysisRunId,
+        IReadOnlyCollection<EvidenceFact> facts,
+        CancellationToken cancellationToken)
+    {
+        foreach (var fact in facts)
+        {
+            await _dbContext.EvidenceFacts.AddAsync(fact, cancellationToken);
+            _dbContext.Entry(fact).Property("AnalysisRunId").CurrentValue = analysisRunId;
         }
     }
 

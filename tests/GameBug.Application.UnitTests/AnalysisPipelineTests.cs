@@ -6,6 +6,7 @@ using GameBug.Application.Abstractions.Files;
 using GameBug.Application.Abstractions.Parsing;
 using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Abstractions.Trust;
+using GameBug.Application.Abstractions.Vision;
 using GameBug.Application.Trust;
 using GameBug.Application.Abstractions.Security;
 using GameBug.Application.Analysis.GetAnalysis;
@@ -14,6 +15,7 @@ using GameBug.Application.Analysis.StartAnalysis;
 using GameBug.Application.Duplicates;
 using GameBug.Application.Evidence;
 using GameBug.Application.ReproCases;
+using GameBug.Application.Vision;
 using GameBug.Domain.Analysis;
 using GameBug.Domain.BugReports;
 using GameBug.Domain.Evidence;
@@ -24,6 +26,7 @@ using GameBug.Infrastructure.Parsing;
 using GameBug.Infrastructure.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
 
@@ -179,6 +182,7 @@ Platform: iOS
         var policy = new SeverityPolicy();
         var unitOfWork = Substitute.For<IUnitOfWork>();
         var duplicateDetection = Substitute.For<IDuplicateDetectionService>();
+        var visualExtractor = Substitute.For<IVisualEvidenceExtractor>();
         ReproCase? savedRepro = null;
 
         var mockReportId = new BugReportId(Guid.NewGuid());
@@ -263,6 +267,8 @@ Platform: iOS
             provenanceValidator,
             qualityGate,
             trustReportRepository,
+            visualExtractor,
+            Options.Create(new VisionOptions()),
             NullLogger<ProcessAnalysisCommandHandler>.Instance);
 
         var command = new ProcessAnalysisCommand(runId.Value);
@@ -274,9 +280,11 @@ Platform: iOS
         result.IsSuccess.Should().BeTrue(result.Error.Description);
         run.Status.Should().Be(AnalysisStatus.AwaitingQaReview);
         run.Stage.Should().BeNull();
+        run.Warnings.Should().Contain(w => w.Code == "VISION_DISABLED");
 
         await runRepository.Received(1).SaveEvidencePackAsync(Arg.Any<EvidencePack>(), Arg.Any<CancellationToken>());
         await runRepository.Received(1).SaveReproCaseAsync(Arg.Any<ReproCase>(), Arg.Any<CancellationToken>());
+        await visualExtractor.DidNotReceiveWithAnyArgs().ExtractAsync(default!, default);
         await unitOfWork.Received().SaveChangesAsync(Arg.Any<CancellationToken>());
         savedRepro.Should().NotBeNull();
         savedRepro!.Steps.First().StepType.Should().Be(StepType.SuggestedToVerify);
@@ -299,6 +307,7 @@ Platform: iOS
         var aiRouter = Substitute.For<IAiTaskRouter>();
         var unitOfWork = Substitute.For<IUnitOfWork>();
         var duplicateDetection = Substitute.For<IDuplicateDetectionService>();
+        var visualExtractor = Substitute.For<IVisualEvidenceExtractor>();
         var policy = new SeverityPolicy();
         var reproValidator = new ReproValidator(policy);
         var promptLoader = new GameBug.Infrastructure.AI.PromptLoader();
@@ -423,6 +432,8 @@ Platform: iOS
             provenanceValidator,
             qualityGate,
             trustReportRepository,
+            visualExtractor,
+            Options.Create(new VisionOptions()),
             logger);
 
         var command = new ProcessAnalysisCommand(runId.Value);
@@ -451,6 +462,7 @@ Platform: iOS
 
         // Verify ExtractingEvidence was SKIPPED (logExtractor never called)
         await logExtractor.DidNotReceiveWithAnyArgs().ExtractAsync(Arg.Any<Stream>(), Arg.Any<CancellationToken>());
+        await visualExtractor.DidNotReceiveWithAnyArgs().ExtractAsync(default!, default);
 
         // Verify GroundingGameContext was EXECUTED (GetGameEntitiesAsync called)
         await contextRepository.Received(1).GetGameEntitiesAsync(Arg.Any<CancellationToken>());
@@ -459,7 +471,8 @@ Platform: iOS
         await runRepository.Received(1).GetCheckpointAsync(runId, AnalysisStage.Sanitizing, "1.0.0", run.InputHash, Arg.Any<CancellationToken>());
         await runRepository.Received(1).GetCheckpointAsync(runId, AnalysisStage.ExtractingEvidence, "1.0.0", extractingInputHash, Arg.Any<CancellationToken>());
 
-        // Verify that SaveCheckpointAsync was called for GroundingGameContext and GeneratingRepro
+        // Verify that SaveCheckpointAsync was called for visual, GroundingGameContext, and GeneratingRepro
+        await runRepository.Received(1).SaveCheckpointAsync(Arg.Is<AnalysisCheckpoint>(c => c.Stage == AnalysisStage.ExtractingVisualEvidence), Arg.Any<CancellationToken>());
         await runRepository.Received(1).SaveCheckpointAsync(Arg.Is<AnalysisCheckpoint>(c => c.Stage == AnalysisStage.GroundingGameContext), Arg.Any<CancellationToken>());
         await runRepository.Received(1).SaveCheckpointAsync(Arg.Is<AnalysisCheckpoint>(c => c.Stage == AnalysisStage.GeneratingRepro), Arg.Any<CancellationToken>());
         await runRepository.Received(1).SaveCheckpointAsync(Arg.Is<AnalysisCheckpoint>(c => c.Stage == AnalysisStage.SearchingDuplicates), Arg.Any<CancellationToken>());

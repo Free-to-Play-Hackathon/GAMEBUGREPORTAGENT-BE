@@ -23,9 +23,12 @@ using GameBug.Domain.GameContext;
 using GameBug.Domain.ReproCases;
 using GameBug.Domain.SharedKernel;
 using GameBug.Application.Abstractions.Trust;
+using GameBug.Application.Abstractions.Vision;
+using GameBug.Application.Vision;
 using GameBug.Domain.Trust;
 using MediatR;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace GameBug.Application.Analysis.StartAnalysis;
 
@@ -53,6 +56,8 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
     private readonly IProvenanceValidator _provenanceValidator;
     private readonly IQualityGate _qualityGate;
     private readonly ITrustReportRepository _trustReportRepository;
+    private readonly IVisualEvidenceExtractor _visualEvidenceExtractor;
+    private readonly VisionOptions _visionOptions;
     private readonly ILogger<ProcessAnalysisCommandHandler> _logger;
 
     public ProcessAnalysisCommandHandler(
@@ -73,6 +78,8 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         IProvenanceValidator provenanceValidator,
         IQualityGate qualityGate,
         ITrustReportRepository trustReportRepository,
+        IVisualEvidenceExtractor visualEvidenceExtractor,
+        IOptions<VisionOptions> visionOptions,
         ILogger<ProcessAnalysisCommandHandler> _logger)
     {
         _analysisRunRepository = analysisRunRepository;
@@ -92,6 +99,8 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         _provenanceValidator = provenanceValidator;
         _qualityGate = qualityGate;
         _trustReportRepository = trustReportRepository;
+        _visualEvidenceExtractor = visualEvidenceExtractor;
+        _visionOptions = visionOptions.Value;
         this._logger = _logger;
     }
 
@@ -331,7 +340,127 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                 _logger.LogInformation("Analysis {RunId} completed ExtractingEvidence stage and saved checkpoint.", run.Id.Value);
             }
 
-            // 4. Ground game context
+            // 4. Extract visual evidence, if configured. Safe-off never blocks core analysis.
+            var screenshotAttachments = report.Attachments
+                .Where(a => a.AttachmentType == AttachmentType.Screenshot)
+                .OrderBy(a => a.Id.Value)
+                .Take(_visionOptions.MaxImagesPerAnalysis)
+                .ToList();
+            string screenshotAttachmentsHash = string.Join('|', screenshotAttachments
+                .Select(a => $"{a.Id.Value}:{a.Checksum}"));
+            string visualInputHash = Hash($"{screenshotAttachmentsHash}|{_visionOptions.Enabled}|{_visionOptions.Provider}|{_visionOptions.StageVersion}");
+            var visualCheckpoint = await _analysisRunRepository.GetCheckpointAsync(
+                run.Id, AnalysisStage.ExtractingVisualEvidence, _visionOptions.StageVersion, visualInputHash, cancellationToken);
+
+            if (visualCheckpoint != null &&
+                TryReadCheckpointPayload(visualCheckpoint, AnalysisStage.ExtractingVisualEvidence, run.Id, _logger, out VisualCheckpointPayload? visualPayload) &&
+                !string.IsNullOrWhiteSpace(visualPayload!.Outcome))
+            {
+                warnings.AddRange(ReadCheckpointWarnings(visualCheckpoint, AnalysisStage.ExtractingVisualEvidence, run.Id, _logger));
+                _logger.LogInformation("Analysis {RunId} restored ExtractingVisualEvidence checkpoint.", run.Id.Value);
+                RestoreCompletedStage(run, AnalysisStage.ExtractingVisualEvidence);
+            }
+            else
+            {
+                EnsureDomainState(run.TransitionStage(AnalysisStage.ExtractingVisualEvidence));
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
+
+                VisualExtractionResult visualResult;
+                if (!_visionOptions.Enabled)
+                {
+                    visualResult = CreateSkippedVisualResult(
+                        "VISION_DISABLED",
+                        "Visual evidence extraction is disabled.",
+                        _visionOptions.Provider,
+                        _visionOptions.StageVersion);
+                }
+                else if (screenshotAttachments.Count == 0)
+                {
+                    visualResult = CreateSkippedVisualResult(
+                        "VISION_NO_SCREENSHOT",
+                        "No screenshot attachment was available for visual evidence extraction.",
+                        _visionOptions.Provider,
+                        _visionOptions.StageVersion);
+                }
+                else
+                {
+                    var visualDescriptors = screenshotAttachments
+                        .Select(attachment => new VisualAttachmentDescriptor(
+                            attachment.Id,
+                            attachment.ContentType,
+                            attachment.SizeBytes,
+                            attachment.Checksum,
+                            ct => _storageReader.OpenReadAsync(attachment.StorageKey, attachment.SizeBytes, attachment.Checksum, ct)))
+                        .ToList();
+
+                    try
+                    {
+                        using var visionTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        visionTimeout.CancelAfter(TimeSpan.FromSeconds(_visionOptions.TimeoutSeconds));
+                        visualResult = await _visualEvidenceExtractor.ExtractAsync(
+                            new VisualExtractionRequest(run.Id, visualDescriptors, _visionOptions.Provider, _visionOptions.StageVersion),
+                            visionTimeout.Token);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Visual evidence extraction degraded for analysis {RunId}.", run.Id.Value);
+                        visualResult = new VisualExtractionResult(
+                            VisionStageOutcome.Degraded,
+                            Array.Empty<EvidenceFact>(),
+                            new[] { new AnalysisWarning("VISION_PROVIDER_UNAVAILABLE", "Visual evidence extraction is unavailable.") },
+                            _visionOptions.Provider,
+                            _visionOptions.StageVersion,
+                            0);
+                    }
+                }
+
+                warnings.AddRange(visualResult.Warnings);
+
+                await _unitOfWork.BeginTransactionAsync(cancellationToken);
+                try
+                {
+                    if (visualResult.Facts.Count > 0)
+                    {
+                        await _analysisRunRepository.SaveEvidenceFactsAsync(run.Id, visualResult.Facts, cancellationToken);
+                        evidencePack = new EvidencePack(
+                            evidencePack.Id,
+                            evidencePack.AnalysisRunId,
+                            evidencePack.Facts.Concat(visualResult.Facts),
+                            evidencePack.Timeline);
+                    }
+
+                    var cp = new AnalysisCheckpoint(
+                        Guid.NewGuid(), run.Id, AnalysisStage.ExtractingVisualEvidence, _visionOptions.StageVersion, visualInputHash, "Started", 1, DateTimeOffset.UtcNow);
+                    var payload = new VisualCheckpointPayload
+                    {
+                        Outcome = visualResult.Outcome.ToString(),
+                        EvidenceFactIds = visualResult.Facts.Select(f => f.Id).ToList(),
+                        Provider = visualResult.Provider,
+                        StageVersion = visualResult.StageVersion,
+                        ProcessedAttachmentCount = visualResult.ProcessedAttachmentCount
+                    };
+                    cp.Complete(JsonSerializer.Serialize(payload), JsonSerializer.Serialize(visualResult.Warnings), DateTimeOffset.UtcNow);
+                    await _analysisRunRepository.SaveCheckpointAsync(cp, cancellationToken);
+                    run.CompleteStage(AnalysisStage.ExtractingVisualEvidence);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    await _unitOfWork.CommitTransactionAsync(cancellationToken);
+                }
+                catch
+                {
+                    await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                    _unitOfWork.ClearChanges();
+                    throw;
+                }
+
+                _logger.LogInformation("Analysis {RunId} completed ExtractingVisualEvidence stage with outcome {Outcome}.", run.Id.Value, visualResult.Outcome);
+            }
+
+            // 5. Ground game context
             var factsString = string.Join('|', evidencePack.Facts.OrderBy(f => f.Id).Select(f => $"{f.FactType}:{f.NormalizedValue}:{f.Status}"));
             string groundingInputHash = Hash($"{sanitizedDescription}|{factsString}");
 
@@ -636,7 +765,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                 _logger.LogInformation("Analysis {RunId} completed GeneratingRepro stage and saved checkpoint.", run.Id.Value);
             }
 
-            // 6. Search duplicate candidates
+            // 7. Search duplicate candidates
             string duplicateInputHash = Hash($"{reproCase.Id}|{evidencePack.Id}|{factsStringForHash}|{reproCase.Title}|{reproCase.ActualResult}");
             var duplicateCheckpoint = await _analysisRunRepository.GetCheckpointAsync(
                 run.Id, AnalysisStage.SearchingDuplicates, "hybrid-v1", duplicateInputHash, cancellationToken);
@@ -672,7 +801,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                 _logger.LogInformation("Analysis {RunId} completed SearchingDuplicates stage and saved checkpoint.", run.Id.Value);
             }
 
-            // 7. Persist results
+            // 8. Persist results
             EnsureDomainState(run.TransitionStage(AnalysisStage.PersistingResult));
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
@@ -684,11 +813,14 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
 
                 // Run Provenance and Quality Gates before transitioning to AwaitQaReview
                 var provenanceViolations = _provenanceValidator.Validate(run.Id, evidencePack, reproCase!, reproWarnings);
+                var trustViolations = provenanceViolations
+                    .Concat(MapVisionWarningsToTrustViolations(warnings))
+                    .ToList();
                 var trustReportResult = _qualityGate.Evaluate(
                     run.Id,
                     reproCase!.Id,
                     TrustTargetType.ReproCase,
-                    provenanceViolations,
+                    trustViolations,
                     evidencePack,
                     reproCase,
                     duplicateSearchComplete: true,
@@ -823,6 +955,27 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         run.CompleteStage(stage);
     }
 
+    private static VisualExtractionResult CreateSkippedVisualResult(string warningCode, string warningMessage, string provider, string stageVersion) =>
+        new(
+            VisionStageOutcome.Skipped,
+            Array.Empty<EvidenceFact>(),
+            new[] { new AnalysisWarning(warningCode, warningMessage) },
+            provider,
+            stageVersion,
+            0);
+
+    private static IReadOnlyList<TrustViolation> MapVisionWarningsToTrustViolations(IEnumerable<AnalysisWarning> warnings) =>
+        warnings
+            .Where(warning => warning.Code.StartsWith("VISION_", StringComparison.Ordinal))
+            .GroupBy(warning => warning.Code, StringComparer.Ordinal)
+            .Select(group => new TrustViolation(
+                group.Key,
+                "analysisRun.stages.extractingVisualEvidence",
+                null,
+                IsBlocking: false,
+                group.First().Message))
+            .ToList();
+
     private static bool TryReadCheckpointPayload<TPayload>(
         AnalysisCheckpoint checkpoint,
         AnalysisStage stage,
@@ -908,6 +1061,15 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         public List<GameEntityDto> MatchedEntities { get; set; } = new();
         public List<ExpectedBehaviorDto> MatchedBehaviors { get; set; } = new();
         public List<AnalysisWarning> Warnings { get; set; } = new();
+    }
+
+    private class VisualCheckpointPayload
+    {
+        public string Outcome { get; set; } = null!;
+        public List<Guid> EvidenceFactIds { get; set; } = new();
+        public string Provider { get; set; } = null!;
+        public string StageVersion { get; set; } = null!;
+        public int ProcessedAttachmentCount { get; set; }
     }
 
     private class GameEntityDto

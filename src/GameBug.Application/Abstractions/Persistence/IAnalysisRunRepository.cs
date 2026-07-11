@@ -14,6 +14,7 @@ public interface IAnalysisRunRepository
     Task<AnalysisRun?> GetLatestByReportIdAsync(BugReportId reportId, CancellationToken cancellationToken);
     Task<AnalysisRun?> GetActiveRunAsync(BugReportId reportId, string inputHash, string configurationHash, CancellationToken cancellationToken);
     Task SaveEvidencePackAsync(EvidencePack evidencePack, CancellationToken cancellationToken);
+    Task SaveEvidenceFactsAsync(AnalysisRunId analysisRunId, IReadOnlyCollection<EvidenceFact> facts, CancellationToken cancellationToken);
     Task SaveReproCaseAsync(ReproCase reproCase, CancellationToken cancellationToken);
     Task<EvidencePack?> GetEvidencePackAsync(AnalysisRunId analysisRunId, CancellationToken cancellationToken);
     Task<ReproCase?> GetReproCaseAsync(AnalysisRunId analysisRunId, CancellationToken cancellationToken);

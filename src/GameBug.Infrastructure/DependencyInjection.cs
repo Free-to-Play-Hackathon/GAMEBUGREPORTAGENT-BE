@@ -21,6 +21,9 @@ using GameBug.Application.Duplicates;
 using GameBug.Application.HistoricalTickets.ImportHistoricalTickets;
 using GameBug.Infrastructure.HistoricalTickets;
 using GameBug.Infrastructure.Filing;
+using GameBug.Application.Abstractions.Vision;
+using GameBug.Application.Vision;
+using GameBug.Infrastructure.Vision;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -65,6 +68,19 @@ public static class DependencyInjection
         services.AddSingleton<ILogEvidenceExtractor, GenericCrashLogParser>();
         services.AddScoped<IPromptLoader, PromptLoader>();
         services.AddScoped<IReproValidator, ReproValidator>();
+
+        services.AddOptions<VisionOptions>()
+            .Bind(configuration.GetSection(VisionOptions.SectionName))
+            .Validate(VisionOptions.IsValid, "Vision options are invalid.")
+            .ValidateOnStart();
+
+        services.AddScoped<IVisualEvidenceExtractor>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<VisionOptions>>().Value;
+            return options.Enabled
+                ? new UnavailableVisualEvidenceExtractor()
+                : new DisabledVisualEvidenceExtractor();
+        });
 
         // MinIO Object Storage
         services.AddOptions<ObjectStorageOptions>()

@@ -4,6 +4,7 @@ public enum AnalysisStage
 {
     Sanitizing,
     ExtractingEvidence,
+    ExtractingVisualEvidence,
     GroundingGameContext,
     GeneratingRepro,
     SearchingDuplicates,

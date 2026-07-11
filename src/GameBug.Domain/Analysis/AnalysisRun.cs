@@ -175,7 +175,8 @@ public class AnalysisRun
         bool isValidTransition = (Stage, nextStage) switch
         {
             (AnalysisStage.Sanitizing, AnalysisStage.ExtractingEvidence) => true,
-            (AnalysisStage.ExtractingEvidence, AnalysisStage.GroundingGameContext) => true,
+            (AnalysisStage.ExtractingEvidence, AnalysisStage.ExtractingVisualEvidence) => true,
+            (AnalysisStage.ExtractingVisualEvidence, AnalysisStage.GroundingGameContext) => true,
             (AnalysisStage.GroundingGameContext, AnalysisStage.GeneratingRepro) => true,
             (AnalysisStage.GeneratingRepro, AnalysisStage.SearchingDuplicates) => true,
             (AnalysisStage.GeneratingRepro, AnalysisStage.PersistingResult) => true,
@@ -409,7 +410,8 @@ public class AnalysisRun
     {
         AnalysisStage.Sanitizing => 5,
         AnalysisStage.ExtractingEvidence => 20,
-        AnalysisStage.GroundingGameContext => 45,
+        AnalysisStage.ExtractingVisualEvidence => 45,
+        AnalysisStage.GroundingGameContext => 50,
         AnalysisStage.GeneratingRepro => 60,
         AnalysisStage.SearchingDuplicates => 90,
         AnalysisStage.PersistingResult => 90,
@@ -420,6 +422,7 @@ public class AnalysisRun
     {
         AnalysisStage.Sanitizing => 20,
         AnalysisStage.ExtractingEvidence => 45,
+        AnalysisStage.ExtractingVisualEvidence => 50,
         AnalysisStage.GroundingGameContext => 60,
         AnalysisStage.GeneratingRepro => 90,
         AnalysisStage.SearchingDuplicates => 90,
