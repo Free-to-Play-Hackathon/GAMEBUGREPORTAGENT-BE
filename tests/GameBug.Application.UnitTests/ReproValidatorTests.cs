@@ -57,13 +57,15 @@ public sealed class ReproValidatorTests
         var result = validator.ValidateAndConstruct(runId, rawLlmJson, facts, "Original Title");
 
         // Assert
-        Assert.True(result.IsSuccess, result.IsFailure ? $"{result.Error.Code}: {result.Error.Description}" : "");
-        var repro = result.Value;
+        result.ReproCaseResult.IsSuccess.Should().BeTrue();
+        var repro = result.ReproCaseResult.Value;
         repro.Title.Should().Be("Store Purchase Crash");
         repro.BuildVersion.Should().Be("1.0.4");
         repro.Platform.Should().Be("iOS");
         repro.Steps.Should().HaveCount(1);
         repro.Steps.First().Description.Should().Be("Open the Store screen");
+        result.Warnings.Should().ContainSingle(w => w.Code == "SUGGESTED_STEP_MISSING_REASON");
+        repro.Steps.First().InferenceReason.Should().Be("The model supplied no inference reason.");
     }
 
     [Fact]
@@ -85,8 +87,8 @@ public sealed class ReproValidatorTests
         var result = validator.ValidateAndConstruct(runId, invalidJson, Array.Empty<EvidenceFact>(), "Original");
 
         // Assert
-        result.IsFailure.Should().BeTrue();
-        result.Error.Code.Should().Be("INVALID_AI_SCHEMA");
+        result.ReproCaseResult.IsFailure.Should().BeTrue();
+        result.ReproCaseResult.Error.Code.Should().Be("INVALID_AI_SCHEMA");
     }
 
     [Fact]

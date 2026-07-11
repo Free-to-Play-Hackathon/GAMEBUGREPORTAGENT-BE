@@ -3,6 +3,7 @@ using GameBug.Domain.Analysis;
 using GameBug.Domain.BugReports;
 using GameBug.Domain.Evidence;
 using GameBug.Domain.ReproCases;
+using GameBug.Domain.Duplicates;
 using Microsoft.EntityFrameworkCore;
 
 namespace GameBug.Infrastructure.Persistence.Repositories;
@@ -136,5 +137,13 @@ public class AnalysisRunRepository : IAnalysisRunRepository
         {
             await _dbContext.AnalysisCheckpoints.AddAsync(checkpoint, cancellationToken);
         }
+    }
+
+    public async Task<IReadOnlyCollection<DuplicateMatch>> GetDuplicateMatchesAsync(AnalysisRunId runId, CancellationToken cancellationToken)
+    {
+        return await _dbContext.DuplicateMatches
+            .Where(m => m.AnalysisRunId == runId)
+            .OrderBy(m => m.Rank)
+            .ToListAsync(cancellationToken);
     }
 }

@@ -22,6 +22,8 @@ using GameBug.Domain.Evidence;
 using GameBug.Domain.GameContext;
 using GameBug.Domain.ReproCases;
 using GameBug.Domain.SharedKernel;
+using GameBug.Application.Abstractions.Trust;
+using GameBug.Domain.Trust;
 using MediatR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -50,6 +52,9 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
     private readonly IDuplicateDetectionService _duplicateDetectionService;
     private readonly DuplicateDetectionOptions _duplicateOptions;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IProvenanceValidator _provenanceValidator;
+    private readonly IQualityGate _qualityGate;
+    private readonly ITrustReportRepository _trustReportRepository;
     private readonly ILogger<ProcessAnalysisCommandHandler> _logger;
 
     public ProcessAnalysisCommandHandler(
@@ -68,7 +73,10 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         IDuplicateDetectionService duplicateDetectionService,
         IOptions<DuplicateDetectionOptions> duplicateOptions,
         IUnitOfWork unitOfWork,
-        ILogger<ProcessAnalysisCommandHandler> logger)
+        IProvenanceValidator provenanceValidator,
+        IQualityGate qualityGate,
+        ITrustReportRepository trustReportRepository,
+        ILogger<ProcessAnalysisCommandHandler> _logger)
     {
         _analysisRunRepository = analysisRunRepository;
         _bugReportRepository = bugReportRepository;
@@ -85,7 +93,10 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         _duplicateDetectionService = duplicateDetectionService;
         _duplicateOptions = duplicateOptions.Value;
         _unitOfWork = unitOfWork;
-        _logger = logger;
+        _provenanceValidator = provenanceValidator;
+        _qualityGate = qualityGate;
+        _trustReportRepository = trustReportRepository;
+        this._logger = _logger;
     }
 
     public async Task<Result> Handle(ProcessAnalysisCommand request, CancellationToken cancellationToken)
@@ -113,6 +124,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         }
 
         var warnings = new List<AnalysisWarning>();
+        var reproWarnings = new List<ReproValidatorWarning>();
 
         try
         {
@@ -447,8 +459,10 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                 run.Id, AnalysisStage.GeneratingRepro, reproRoute.PromptVersion, reproInputHash, cancellationToken);
 
             bool hasValidReproReference = reproCheckpoint != null &&
-                TryReadCheckpointPayload(reproCheckpoint, AnalysisStage.GeneratingRepro, run.Id, _logger, out CheckpointReferencePayload? reproReference) &&
-                reproReference!.Id != Guid.Empty;
+                (TryReadCheckpointPayload(reproCheckpoint, AnalysisStage.GeneratingRepro, run.Id, _logger, out ReproCheckpointPayload? reproPayload) &&
+                 reproPayload!.ReproCaseId != Guid.Empty ||
+                 TryReadCheckpointPayload(reproCheckpoint, AnalysisStage.GeneratingRepro, run.Id, _logger, out CheckpointReferencePayload? reproReference) &&
+                 reproReference!.Id != Guid.Empty);
 
             if (hasValidReproReference)
             {
@@ -459,6 +473,12 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             {
                 warnings.AddRange(ReadCheckpointWarnings(reproCheckpoint, AnalysisStage.GeneratingRepro, run.Id, _logger));
                 _logger.LogInformation("Analysis {RunId} restored GeneratingRepro checkpoint.", run.Id.Value);
+
+                if (TryReadCheckpointPayload(reproCheckpoint, AnalysisStage.GeneratingRepro, run.Id, _logger, out ReproCheckpointPayload? rPayload))
+                {
+                    reproWarnings = rPayload?.Warnings ?? new();
+                }
+
                 RestoreCompletedStage(run, AnalysisStage.GeneratingRepro);
             }
             else
@@ -577,12 +597,17 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                 }
 
                 var reproCaseResult = _reproValidator.ValidateAndConstruct(run.Id, generation.Json, evidencePack.Facts.ToList(), reportTitle);
-                if (reproCaseResult.IsFailure)
+                if (reproCaseResult.ReproCaseResult.IsFailure)
                 {
-                    throw new Exception($"Failed to construct valid ReproCase: {reproCaseResult.Error.Description}");
+                    throw new Exception($"Failed to construct valid ReproCase: {reproCaseResult.ReproCaseResult.Error.Description}");
                 }
 
-                reproCase = reproCaseResult.Value;
+                reproCase = reproCaseResult.ReproCaseResult.Value;
+                reproWarnings = reproCaseResult.Warnings.ToList();
+
+                // Run Provenance Gate immediately after validation (before duplicate search)
+                var provenanceViolations = _provenanceValidator.Validate(run.Id, evidencePack, reproCase, reproWarnings);
+                _logger.LogInformation("Provenance validation completed for run {RunId}. Violations count: {ViolationsCount}", run.Id.Value, provenanceViolations.Count);
 
                 var selectedExecution = run.AiExecutions.FirstOrDefault(e => e.Task == AiTask.SynthesizeReproCase.ToString() && e.Status == "Success");
                 if (selectedExecution != null)
@@ -599,7 +624,8 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                     await _analysisRunRepository.SaveReproCaseAsync(reproCase, cancellationToken);
                     var cp = new AnalysisCheckpoint(
                         Guid.NewGuid(), run.Id, AnalysisStage.GeneratingRepro, reproRoute.PromptVersion, reproInputHash, "Started", 1, DateTimeOffset.UtcNow);
-                    cp.Complete(JsonSerializer.Serialize(new CheckpointReferencePayload(reproCase.Id)), JsonSerializer.Serialize(stageWarnings), DateTimeOffset.UtcNow);
+                    var payload = new ReproCheckpointPayload { ReproCaseId = reproCase.Id, Warnings = reproWarnings };
+                    cp.Complete(JsonSerializer.Serialize(payload), JsonSerializer.Serialize(stageWarnings), DateTimeOffset.UtcNow);
                     await _analysisRunRepository.SaveCheckpointAsync(cp, cancellationToken);
                     run.CompleteStage(AnalysisStage.GeneratingRepro);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -659,6 +685,26 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             try
             {
                 run.CompleteStage(AnalysisStage.PersistingResult);
+
+                // Run Provenance and Quality Gates before transitioning to AwaitQaReview
+                var provenanceViolations = _provenanceValidator.Validate(run.Id, evidencePack, reproCase!, reproWarnings);
+                var trustReportResult = _qualityGate.Evaluate(
+                    run.Id,
+                    reproCase!.Id,
+                    TrustTargetType.ReproCase,
+                    provenanceViolations,
+                    evidencePack,
+                    reproCase,
+                    duplicateSearchComplete: true,
+                    run.InputHash);
+
+                if (trustReportResult.IsFailure)
+                {
+                    throw new InvalidOperationException($"Failed to evaluate Quality Gate: {trustReportResult.Error.Description}");
+                }
+
+                await _trustReportRepository.AddAsync(trustReportResult.Value, cancellationToken);
+
                 var completion = run.AwaitQaReview($"analysis-results/{run.Id.Value}", warnings, DateTimeOffset.UtcNow);
                 if (completion.IsFailure)
                 {
@@ -898,5 +944,11 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
     {
         public string Trigger { get; set; } = null!;
         public string ExpectedOutcome { get; set; } = null!;
+    }
+
+    private class ReproCheckpointPayload
+    {
+        public Guid ReproCaseId { get; set; }
+        public List<ReproValidatorWarning> Warnings { get; set; } = new();
     }
 }

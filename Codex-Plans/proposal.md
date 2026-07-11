@@ -687,10 +687,14 @@ Chi tiết triển khai nằm tại [phases/README.md](phases/README.md).
 | [2 - Text/Log Happy Path](phases/phase-2-text-log-happy-path.md) | Sanitizer, parser, evidence, repro AI, sync orchestration | Golden report/log sinh valid persisted repro |
 | [3 - Async Pipeline](phases/phase-3-async-pipeline.md) | Worker, durable queue, outbox, checkpoints, retry | Restart/disconnect/duplicate delivery an toàn |
 | [4 - Duplicate Intelligence](phases/phase-4-duplicate-intelligence.md) | Ticket import, pgvector/full-text/exact, scoring/reranking | BUG-201 top 3; hard negatives an toàn |
-| [5 - QA Workflow](phases/phase-5-qa-workflow.md) | Review, revision, duplicate gate, clarification, mock filing | Duplicate gate không bypass; decisions idempotent |
-| [6 - Trust Features](phases/phase-6-trust-features.md) | Source groups, trust policy, provenance/quality/partial results | Không unsupported confirmed output |
-| [7 - Optional Vision](phases/phase-7-optional-vision.md) | Safe image pipeline, visual facts, trust/ranker integration | Vision OFF/failure không phá core flow |
-| [8 - Evaluation & Deployment](phases/phase-8-evaluation-deployment.md) | Benchmark, containers, migration, seed/reset, observability, release gates | Clean E2E và measured metrics reproducible |
+| [5 - QA Decision MVP](phases/phase-5-qa-workflow.md) | Review, revision, duplicate gate, MarkDuplicate, CreateNew mock, RequestInfo | Duplicate gate không bypass; decisions idempotent |
+| [6 - Trust Gate MVP](phases/phase-6-trust-features.md) | Provenance validator, uncertainty preservation, quality/allowed actions | Không unsupported confirmed output; Unknown/Inferred/Conflict được giữ |
+| [7 - Vision Safe-Off MVP](phases/phase-7-optional-vision.md) | Vision feature flag OFF by default, skipped/degraded stage warnings | Vision OFF/failure không phá core text/log flow |
+| [8 - Evaluation & Demo Release MVP](phases/phase-8-evaluation-deployment.md) | Small benchmark, metrics export, seed/reset, clean golden E2E | Clean demo run và measured metrics có identity |
+| [9 - Advanced QA Workflow](phases/phase-9-advanced-qa-workflow.md) | Lead override, richer clarification, manual duplicate selection, advanced review metrics | Stretch; không chặn MVP |
+| [10 - Trust Hardening](phases/phase-10-trust-hardening.md) | Full source groups/corroboration, conflict resolution, provider fallback, retention | Stretch; không chặn MVP |
+| [11 - Full Optional Vision](phases/phase-11-optional-vision-full.md) | Safe image pipeline, multimodal extraction, visual facts, screenshot duplicate signal | Stretch; chỉ bật nếu không giảm trust |
+| [12 - Production Release Hardening](phases/phase-12-production-release-hardening.md) | Hardened containers, backup/restore, load/resilience, CI/release gates | Stretch; release hardening sau demo MVP |
 
 ### Milestones
 
@@ -698,8 +702,9 @@ Chi tiết triển khai nằm tại [phases/README.md](phases/README.md).
 |---|---|---|
 | M1 - Vertical Slice | 0-2 | POST report/log -> evidence/repro -> persist/GET |
 | M2 - Resilient Intelligence | 3-4 | Async pipeline + duplicate top 3 |
-| M3 - Product-complete MVP | 5-6 | Human decision gate + trustworthy outputs |
-| M4 - Release-ready | 7-8 | Optional vision + evaluation + repeatable deployment |
+| M3 - MVP Product Loop | 5-6 | Human decision gate + trustworthy outputs |
+| M4 - Demo-ready Release | 7-8 | Vision safe-off + evaluation + repeatable demo |
+| M5 - Stretch Hardening | 9-12 | Advanced QA/trust/vision/production hardening nếu còn thời gian |
 
 ## 22. Backend Workstreams
 

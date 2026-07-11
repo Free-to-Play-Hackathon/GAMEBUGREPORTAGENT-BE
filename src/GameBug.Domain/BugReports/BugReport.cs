@@ -211,4 +211,24 @@ public class BugReport
 
         return Result.Success();
     }
+
+    public Result BeginQaReview(DateTimeOffset startedAt)
+    {
+        return UpdateStatus(ReportStatus.UnderReview, startedAt);
+    }
+
+    public Result RequestMoreInformation(DateTimeOffset requestedAt)
+    {
+        return UpdateStatus(ReportStatus.NeedsMoreInformation, requestedAt);
+    }
+
+    public Result CloseAsDuplicate(DateTimeOffset closedAt)
+    {
+        return UpdateStatus(ReportStatus.Closed, closedAt);
+    }
+
+    public Result CloseWithNewTicket(DateTimeOffset closedAt)
+    {
+        return UpdateStatus(ReportStatus.Closed, closedAt);
+    }
 }

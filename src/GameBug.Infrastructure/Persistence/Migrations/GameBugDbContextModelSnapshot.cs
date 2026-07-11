@@ -1317,6 +1317,325 @@ namespace GameBug.Infrastructure.Persistence.Migrations
                     b.ToTable("game_entities", (string)null);
                 });
 
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ClarificationAnswer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AnswerText")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("AnsweredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AnsweredBy")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("QuestionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QuestionId")
+                        .IsUnique();
+
+                    b.ToTable("clarification_answers", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ClarificationQuestion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("QuestionText")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestId");
+
+                    b.ToTable("clarification_questions", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ClarificationRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RequestedBy")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid?>("ResultingAnalysisRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ReviewId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReviewId");
+
+                    b.ToTable("clarification_requests", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.InternalTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ExternalTicketId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("FiledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ReviewId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SystemName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReviewId")
+                        .IsUnique();
+
+                    b.ToTable("internal_tickets", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.QaDecision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTimeOffset>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DuplicateOfTicketId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("RejectReasonCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("ReviewId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DuplicateOfTicketId");
+
+                    b.HasIndex("ReviewId")
+                        .IsUnique();
+
+                    b.ToTable("qa_decisions", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.QaReview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AnalysisRunId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CandidateSnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTimeOffset>("OpenedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OpenedBy")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("VersionToken")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnalysisRunId")
+                        .IsUnique();
+
+                    b.ToTable("qa_reviews", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ReproRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BaseReproId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("EditedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Editor")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid?>("ParentRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ReviewId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SerializedRepro")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReviewId", "RevisionNumber")
+                        .IsUnique();
+
+                    b.ToTable("repro_revisions", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.TicketFilingRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("ReviewId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("ticket_filing_requests", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.Trust.TrustReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AnalysisRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_run_id");
+
+                    b.Property<string>("AllowedActions")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("allowed_actions_json");
+
+                    b.Property<DateTimeOffset>("EvaluatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("evaluated_at");
+
+                    b.Property<string>("InputHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("input_hash");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("PolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("policy_version");
+
+                    b.Property<Guid>("TargetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("target_type");
+
+                    b.Property<string>("Violations")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("violations_json");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetType", "TargetId", "PolicyVersion", "InputHash")
+                        .IsUnique()
+                        .HasDatabaseName("IX_trust_reports_target_policy_hash");
+
+                    b.ToTable("trust_reports", (string)null);
+                });
+
             modelBuilder.Entity("GameBug.Domain.ReproCases.ReproCase", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1626,6 +1945,65 @@ namespace GameBug.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ClarificationAnswer", b =>
+                {
+                    b.HasOne("GameBug.Domain.QaWorkflow.ClarificationQuestion", null)
+                        .WithOne("Answer")
+                        .HasForeignKey("GameBug.Domain.QaWorkflow.ClarificationAnswer", "QuestionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ClarificationQuestion", b =>
+                {
+                    b.HasOne("GameBug.Domain.QaWorkflow.ClarificationRequest", null)
+                        .WithMany("Questions")
+                        .HasForeignKey("RequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ClarificationRequest", b =>
+                {
+                    b.HasOne("GameBug.Domain.QaWorkflow.QaReview", null)
+                        .WithMany("ClarificationRequests")
+                        .HasForeignKey("ReviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.InternalTicket", b =>
+                {
+                    b.HasOne("GameBug.Domain.QaWorkflow.QaReview", null)
+                        .WithOne("InternalTicket")
+                        .HasForeignKey("GameBug.Domain.QaWorkflow.InternalTicket", "ReviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.QaDecision", b =>
+                {
+                    b.HasOne("GameBug.Domain.Duplicates.HistoricalTicket", null)
+                        .WithMany()
+                        .HasForeignKey("DuplicateOfTicketId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("GameBug.Domain.QaWorkflow.QaReview", null)
+                        .WithOne("Decision")
+                        .HasForeignKey("GameBug.Domain.QaWorkflow.QaDecision", "ReviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ReproRevision", b =>
+                {
+                    b.HasOne("GameBug.Domain.QaWorkflow.QaReview", null)
+                        .WithMany("Revisions")
+                        .HasForeignKey("ReviewId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("GameBug.Domain.ReproCases.ReproCase", b =>
                 {
                     b.HasOne("GameBug.Domain.Analysis.AnalysisRun", null)
@@ -1657,6 +2035,27 @@ namespace GameBug.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("GameBug.Domain.Evidence.EvidenceFact", b =>
                 {
                     b.Navigation("Sources");
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ClarificationQuestion", b =>
+                {
+                    b.Navigation("Answer");
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.ClarificationRequest", b =>
+                {
+                    b.Navigation("Questions");
+                });
+
+            modelBuilder.Entity("GameBug.Domain.QaWorkflow.QaReview", b =>
+                {
+                    b.Navigation("ClarificationRequests");
+
+                    b.Navigation("Decision");
+
+                    b.Navigation("InternalTicket");
+
+                    b.Navigation("Revisions");
                 });
 
             modelBuilder.Entity("GameBug.Domain.ReproCases.ReproCase", b =>

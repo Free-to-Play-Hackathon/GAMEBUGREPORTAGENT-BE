@@ -32,7 +32,7 @@ public class GlobalExceptionHandler : IExceptionHandler
         var (status, code, title, retryable) = exception switch
         {
             FluentValidation.ValidationException => (
-                StatusCodes.Status400BadRequest,
+                StatusCodes.Status422UnprocessableEntity,
                 "VALIDATION_FAILED",
                 "Validation failed",
                 false),
@@ -48,6 +48,12 @@ public class GlobalExceptionHandler : IExceptionHandler
                 "STORAGE_FAILURE",
                 "Object storage is temporarily unavailable",
                 true),
+
+            DbUpdateConcurrencyException => (
+                StatusCodes.Status409Conflict,
+                "QA_REVIEW_VERSION_CONFLICT",
+                "The requested resource was modified by another operation",
+                false),
 
             DbUpdateException => (
                 StatusCodes.Status503ServiceUnavailable,

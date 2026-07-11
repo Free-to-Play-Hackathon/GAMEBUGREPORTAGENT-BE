@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using GameBug.Api.Configuration;
 using GameBug.Api.Endpoints.BugReports;
+using GameBug.Api.Endpoints.QaDecisions;
 using GameBug.Api.Errors;
 using GameBug.Api.Middleware;
 using GameBug.Application;
@@ -81,6 +82,7 @@ app.MapCreateBugReport();
 app.MapGetBugReport();
 app.MapAnalysisEndpoints();
 app.MapHistoricalTicketEndpoints();
+app.MapQaReviewEndpoints();
 
 app.MapGet("/", (IHostEnvironment environment) => Results.Ok(new
 {

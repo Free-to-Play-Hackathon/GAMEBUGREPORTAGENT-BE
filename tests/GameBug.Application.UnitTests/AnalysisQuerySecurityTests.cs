@@ -19,6 +19,7 @@ public sealed class AnalysisQuerySecurityTests
     {
         var runs = Substitute.For<IAnalysisRunRepository>();
         var historicalTickets = Substitute.For<IHistoricalTicketRepository>();
+        var trustReports = Substitute.For<ITrustReportRepository>();
         var reports = Substitute.For<IBugReportRepository>();
         var user = Substitute.For<ICurrentUser>();
         var reportId = BugReportId.CreateUnique();
@@ -31,6 +32,7 @@ public sealed class AnalysisQuerySecurityTests
         var handler = new GetAnalysisResultQueryHandler(
             runs,
             historicalTickets,
+            trustReports,
             reports,
             user,
             Options.Create(new EmbeddingOptions()),
@@ -48,6 +50,7 @@ public sealed class AnalysisQuerySecurityTests
     {
         var runs = Substitute.For<IAnalysisRunRepository>();
         var historicalTickets = Substitute.For<IHistoricalTicketRepository>();
+        var trustReports = Substitute.For<ITrustReportRepository>();
         var reports = Substitute.For<IBugReportRepository>();
         var user = Substitute.For<ICurrentUser>();
         var reportId = BugReportId.CreateUnique();
@@ -70,6 +73,7 @@ public sealed class AnalysisQuerySecurityTests
     {
         var runs = Substitute.For<IAnalysisRunRepository>();
         var historicalTickets = Substitute.For<IHistoricalTicketRepository>();
+        var trustReports = Substitute.For<ITrustReportRepository>();
         var reports = Substitute.For<IBugReportRepository>();
         var user = Substitute.For<ICurrentUser>();
         var reportId = BugReportId.CreateUnique();
@@ -98,6 +102,7 @@ public sealed class AnalysisQuerySecurityTests
     {
         var runs = Substitute.For<IAnalysisRunRepository>();
         var historicalTickets = Substitute.For<IHistoricalTicketRepository>();
+        var trustReports = Substitute.For<ITrustReportRepository>();
         var reports = Substitute.For<IBugReportRepository>();
         var user = Substitute.For<ICurrentUser>();
         var reportId = BugReportId.CreateUnique();
@@ -112,6 +117,7 @@ public sealed class AnalysisQuerySecurityTests
         var result = await new GetAnalysisResultQueryHandler(
                 runs,
                 historicalTickets,
+                trustReports,
                 reports,
                 user,
                 Options.Create(new EmbeddingOptions()),
