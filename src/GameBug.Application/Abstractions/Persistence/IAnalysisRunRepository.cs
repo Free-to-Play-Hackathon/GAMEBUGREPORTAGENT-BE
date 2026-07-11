@@ -16,4 +16,6 @@ public interface IAnalysisRunRepository
     Task SaveReproCaseAsync(ReproCase reproCase, CancellationToken cancellationToken);
     Task<EvidencePack?> GetEvidencePackAsync(AnalysisRunId analysisRunId, CancellationToken cancellationToken);
     Task<ReproCase?> GetReproCaseAsync(AnalysisRunId analysisRunId, CancellationToken cancellationToken);
+    Task<AnalysisCheckpoint?> GetCheckpointAsync(AnalysisRunId runId, AnalysisStage stage, string stageVersion, string inputHash, CancellationToken cancellationToken);
+    Task SaveCheckpointAsync(AnalysisCheckpoint checkpoint, CancellationToken cancellationToken);
 }

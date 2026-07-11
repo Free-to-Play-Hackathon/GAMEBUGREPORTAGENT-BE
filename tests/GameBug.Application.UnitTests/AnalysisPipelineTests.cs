@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using GameBug.Application.Abstractions.AI;
 using GameBug.Application.Abstractions.Files;
@@ -18,6 +19,7 @@ using GameBug.Domain.ReproCases;
 using GameBug.Domain.SharedKernel;
 using GameBug.Infrastructure.Parsing;
 using GameBug.Infrastructure.Security;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Xunit;
@@ -266,5 +268,179 @@ Platform: iOS
         savedRepro.Should().NotBeNull();
         savedRepro!.Steps.First().StepType.Should().Be(StepType.SuggestedToVerify);
         savedRepro.Steps.First().SourceId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ProcessAnalysisCommandHandler_ShouldResumeFromCheckpoints()
+    {
+        // Arrange
+        var runRepository = Substitute.For<IAnalysisRunRepository>();
+        var reportRepository = Substitute.For<IBugReportRepository>();
+        var storageReader = Substitute.For<IObjectStorageReader>();
+        var sanitizer = Substitute.For<IContentSanitizer>();
+        var logExtractor = Substitute.For<ILogEvidenceExtractor>();
+        var resolver = new EvidenceResolver();
+        var timelineBuilder = new EventTimelineBuilder();
+        var contextRepository = Substitute.For<IGameContextRepository>();
+        var aiGateway = Substitute.For<IStructuredAiGateway>();
+        var aiRouter = Substitute.For<IAiTaskRouter>();
+        var unitOfWork = Substitute.For<IUnitOfWork>();
+        var policy = new SeverityPolicy();
+        var reproValidator = new ReproValidator(policy);
+        var promptLoader = new GameBug.Infrastructure.AI.PromptLoader();
+
+        var mockReportId = new BugReportId(Guid.NewGuid());
+        var mockReport = BugReport.Submit(
+            mockReportId,
+            "Game crashes on opening buy store page.",
+            "1.0.0",
+            "Android",
+            "Pixel 6",
+            "en-US",
+            "SessionRef123",
+            "User123",
+            DateTimeOffset.UtcNow).Value;
+
+        reportRepository.GetAsync(mockReportId, Arg.Any<CancellationToken>()).Returns(mockReport);
+
+        var runId = new AnalysisRunId(Guid.NewGuid());
+        var run = AnalysisRun.Create(runId, mockReportId, 1, "input-hash", "config-hash", "1.0.0").Value;
+        runRepository.GetAsync(runId, Arg.Any<CancellationToken>()).Returns(run);
+
+        // Pre-stage 1: Sanitizing is already completed!
+        var sanitizingPayload = JsonSerializer.Serialize(new
+        {
+            SanitizedDescription = "Sanitized description from checkpoint",
+            Warnings = new List<AnalysisWarning> { new("TEST_WARN", "Sanitizing warning") }
+        });
+        var sanitizingCheckpoint = new AnalysisCheckpoint(
+            Guid.NewGuid(), runId, AnalysisStage.Sanitizing, "1.0.0", run.InputHash, "Completed", 1, DateTimeOffset.UtcNow);
+        sanitizingCheckpoint.Complete(sanitizingPayload, "[]", DateTimeOffset.UtcNow);
+
+        runRepository.GetCheckpointAsync(runId, AnalysisStage.Sanitizing, "1.0.0", run.InputHash, Arg.Any<CancellationToken>())
+            .Returns(sanitizingCheckpoint);
+
+        // Pre-stage 2: ExtractingEvidence is already completed!
+        string logAttachmentsHash = string.Join('|', mockReport.Attachments
+            .Where(a => a.AttachmentType == AttachmentType.Log)
+            .OrderBy(a => a.Id.Value)
+            .Select(a => $"{a.Id.Value}:{a.Checksum}"));
+        string extractingInputHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"Sanitized description from checkpoint|{logAttachmentsHash}"))).ToLowerInvariant();
+
+        var evidencePack = new EvidencePack(Guid.NewGuid(), runId, new List<EvidenceFact>(), new List<EventTimelineEntry>());
+        var extractingCheckpoint = new AnalysisCheckpoint(
+            Guid.NewGuid(), runId, AnalysisStage.ExtractingEvidence, "1.0.0", extractingInputHash, "Completed", 1, DateTimeOffset.UtcNow);
+        extractingCheckpoint.Complete(evidencePack.Id.ToString(), "[]", DateTimeOffset.UtcNow);
+
+        runRepository.GetCheckpointAsync(runId, AnalysisStage.ExtractingEvidence, "1.0.0", extractingInputHash, Arg.Any<CancellationToken>())
+            .Returns(extractingCheckpoint);
+        runRepository.GetEvidencePackAsync(runId, Arg.Any<CancellationToken>())
+            .Returns(evidencePack);
+
+        // GroundingGameContext is NOT completed, so it will be executed
+        contextRepository.GetGameEntitiesAsync(Arg.Any<CancellationToken>()).Returns(new List<GameEntity>());
+        contextRepository.GetExpectedBehaviorsAsync(Arg.Any<CancellationToken>()).Returns(new List<ExpectedBehavior>());
+
+        // Mock OpenAI structured response for GeneratingRepro
+        string mockLlmResponse = @"{
+            ""title"": ""Android crash on opening Store"",
+            ""buildVersion"": ""1.0.0"",
+            ""platform"": ""Android"",
+            ""preconditions"": ""User is logged in"",
+            ""steps"": [
+                { ""order"": 1, ""description"": ""Open application"", ""stepType"": ""Confirmed"", ""sourceId"": null, ""inferenceReason"": null }
+            ],
+            ""expectedResult"": ""Store page opens smoothly"",
+            ""actualResult"": ""Application crashes"",
+            ""severityEstimate"": ""High"",
+            ""severityReason"": ""Causes crash"",
+            ""missingInformation"": null,
+            ""confidence"": 0.9
+        }";
+
+        aiRouter.Resolve(Arg.Any<AiTask>(), Arg.Any<AiRoutingContext>())
+            .Returns(call => new AiRoute(
+                call.Arg<AiTask>() == AiTask.NormalizeBugReport ? "report-understanding" : "repro-synthesis",
+                "test-provider", "test-model", "v1", "analysis-result-v1", "routing-v1", 30, 4096));
+
+        aiGateway.GenerateStructuredResponseAsync(
+                AiTask.NormalizeBugReport, Arg.Any<AiRoute>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new AiGenerationResult(
+                "{\"symptom\":\"crash\",\"action\":\"open store\",\"context\":\"Android\",\"missingInformation\":[]}",
+                "test-provider", "test-model", "test-model", 1));
+
+        aiGateway.GenerateStructuredResponseAsync(
+                AiTask.SynthesizeReproCase, Arg.Any<AiRoute>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new AiGenerationResult(mockLlmResponse, "test-provider", "test-model", "test-model", 1));
+
+        var logger = Substitute.For<ILogger<ProcessAnalysisCommandHandler>>();
+        logger.When(x => x.Log(
+            Arg.Any<LogLevel>(),
+            Arg.Any<EventId>(),
+            Arg.Any<object>(),
+            Arg.Any<Exception>(),
+            Arg.Any<Func<object, Exception?, string>>()))
+            .Do(x => {
+                var ex = x.ArgAt<Exception>(3);
+                if (ex != null) Console.WriteLine($"EXCEPTION IN HANDLER: {ex}");
+            });
+
+        var handler = new ProcessAnalysisCommandHandler(
+            runRepository,
+            reportRepository,
+            storageReader,
+            sanitizer,
+            logExtractor,
+            resolver,
+            timelineBuilder,
+            contextRepository,
+            aiGateway,
+            aiRouter,
+            promptLoader,
+            reproValidator,
+            unitOfWork,
+            logger);
+
+        var command = new ProcessAnalysisCommand(runId.Value);
+
+        // Act
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        if (!result.IsSuccess)
+        {
+            var calls = logger.ReceivedCalls();
+            foreach (var call in calls)
+            {
+                var args = call.GetArguments();
+                if (args.Length > 3 && args[3] is Exception ex)
+                {
+                    throw new Exception("LOGGED EXCEPTION IN HANDLER: " + ex.ToString());
+                }
+            }
+        }
+        result.IsSuccess.Should().BeTrue(result.Error.Description);
+        run.Status.Should().Be(AnalysisStatus.CompletedWithWarnings);
+
+        // Verify Sanitizing was SKIPPED (sanitizer never called)
+        sanitizer.DidNotReceiveWithAnyArgs().SanitizeDocument(Arg.Any<string>());
+
+        // Verify ExtractingEvidence was SKIPPED (logExtractor never called)
+        await logExtractor.DidNotReceiveWithAnyArgs().ExtractAsync(Arg.Any<Stream>(), Arg.Any<CancellationToken>());
+
+        // Verify GroundingGameContext was EXECUTED (GetGameEntitiesAsync called)
+        await contextRepository.Received(1).GetGameEntitiesAsync(Arg.Any<CancellationToken>());
+
+        // Verify checkpoints were loaded and progress made
+        await runRepository.Received(1).GetCheckpointAsync(runId, AnalysisStage.Sanitizing, "1.0.0", run.InputHash, Arg.Any<CancellationToken>());
+        await runRepository.Received(1).GetCheckpointAsync(runId, AnalysisStage.ExtractingEvidence, "1.0.0", extractingInputHash, Arg.Any<CancellationToken>());
+
+        // Verify that SaveCheckpointAsync was called for GroundingGameContext and GeneratingRepro
+        await runRepository.Received(1).SaveCheckpointAsync(Arg.Is<AnalysisCheckpoint>(c => c.Stage == AnalysisStage.GroundingGameContext), Arg.Any<CancellationToken>());
+        await runRepository.Received(1).SaveCheckpointAsync(Arg.Is<AnalysisCheckpoint>(c => c.Stage == AnalysisStage.GeneratingRepro), Arg.Any<CancellationToken>());
+
+        // Verify ReproCase was saved
+        await runRepository.Received(1).SaveReproCaseAsync(Arg.Any<ReproCase>(), Arg.Any<CancellationToken>());
+        await unitOfWork.Received().SaveChangesAsync(Arg.Any<CancellationToken>());
     }
 }

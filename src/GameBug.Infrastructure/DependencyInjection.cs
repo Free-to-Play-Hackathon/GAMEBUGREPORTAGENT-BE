@@ -1,5 +1,6 @@
 using GameBug.Application.Abstractions.AI;
 using GameBug.Application.Abstractions.Files;
+using GameBug.Application.Abstractions.Jobs;
 using GameBug.Application.Abstractions.Observability;
 using GameBug.Application.Abstractions.Parsing;
 using GameBug.Application.Abstractions.Persistence;
@@ -11,6 +12,7 @@ using GameBug.Infrastructure.Observability;
 using GameBug.Infrastructure.Persistence;
 using GameBug.Infrastructure.Persistence.Repositories;
 using GameBug.Infrastructure.AI;
+using GameBug.Infrastructure.Jobs;
 using GameBug.Application.ReproCases;
 using GameBug.Infrastructure.Security;
 using GameBug.Infrastructure.Time;
@@ -42,6 +44,11 @@ public static class DependencyInjection
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
         services.AddScoped<IAnalysisRunRepository, AnalysisRunRepository>();
         services.AddScoped<IGameContextRepository, GameContextRepository>();
+        services.AddScoped<IAnalysisOutboxStore, AnalysisOutboxStore>();
+        services.AddScoped<IBackgroundJobQueue, DurableBackgroundJobQueue>();
+        services.AddScoped<DurableBackgroundJobQueue>();
+        services.AddScoped<IOutboxDispatcher, AnalysisOutboxDispatcher>();
+        services.AddScoped<IAnalysisExecutionLock, AnalysisExecutionLock>();
         services.AddSingleton<IContentSanitizer, ContentSanitizer>();
         services.AddSingleton<ILogEvidenceExtractor, GenericCrashLogParser>();
         services.AddScoped<IPromptLoader, PromptLoader>();
@@ -82,6 +89,17 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUser, CurrentUser>();
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddSingleton<IClock, SystemClock>();
+
+        services.AddOptions<JobOptions>()
+            .Bind(configuration.GetSection(JobOptions.SectionName))
+            .Validate(options => !string.IsNullOrWhiteSpace(options.QueueName), "Jobs:QueueName is required.")
+            .Validate(options => options.WorkerConcurrency is > 0 and <= 16, "Jobs:WorkerConcurrency must be between 1 and 16.")
+            .Validate(options => options.DispatcherBatchSize is > 0 and <= 100, "Jobs:DispatcherBatchSize must be between 1 and 100.")
+            .Validate(options => options.DispatcherPollingIntervalSeconds is > 0 and <= 60, "Jobs:DispatcherPollingIntervalSeconds must be between 1 and 60.")
+            .Validate(options => options.LeaseDurationSeconds is >= 10 and <= 900, "Jobs:LeaseDurationSeconds must be between 10 and 900.")
+            .Validate(options => options.HeartbeatIntervalSeconds > 0 && options.HeartbeatIntervalSeconds < options.LeaseDurationSeconds, "Jobs:HeartbeatIntervalSeconds must be less than lease duration.")
+            .Validate(options => options.MaxAttempts is > 0 and <= 10, "Jobs:MaxAttempts must be between 1 and 10.")
+            .ValidateOnStart();
 
         // OpenAI Responses API gateway
         services.AddOptions<AI.AiRoutingOptions>()

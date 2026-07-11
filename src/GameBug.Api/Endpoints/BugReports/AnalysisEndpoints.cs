@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using GameBug.Application.Analysis.CancelAnalysis;
 using GameBug.Application.Analysis.GetAnalysis;
 using GameBug.Application.Analysis.GetAnalysisResult;
 using GameBug.Application.Analysis.StartAnalysis;
@@ -56,6 +57,16 @@ public static class AnalysisEndpoints
             return result.IsFailure
                 ? BugReportContractMapper.MapErrorToResult(result.Error, traceId)
                 : Results.Ok(result.Value);
+        });
+
+        app.MapPost("/api/v1/analyses/{analysisId:guid}/cancel", async (
+            Guid analysisId, [FromServices] ISender sender, HttpRequest request, CancellationToken cancellationToken) =>
+        {
+            string traceId = Activity.Current?.Id ?? request.HttpContext.TraceIdentifier;
+            var result = await sender.Send(new CancelAnalysisCommand(analysisId), cancellationToken);
+            return result.IsFailure
+                ? BugReportContractMapper.MapErrorToResult(result.Error, traceId)
+                : Results.Accepted($"/api/v1/analyses/{analysisId}", result.Value);
         });
     }
 }

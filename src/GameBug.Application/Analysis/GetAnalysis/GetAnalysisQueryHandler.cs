@@ -37,7 +37,7 @@ public sealed class GetAnalysisQueryHandler : IRequestHandler<GetAnalysisQuery, 
         return new GetAnalysisResult(
             run.Id.Value, run.ReportId.Value, run.Version, ToLowerCamel(run.Status),
             run.Stage is null ? null : ToLowerCamel(run.Stage.Value), Progress(run),
-            run.StartedAt, run.CompletedAt,
+            run.StartedAt ?? run.QueuedAt, run.CompletedAt,
             run.Warnings.Select(warning => new WarningResult(warning.Code, warning.Message)).ToList(),
             run.ErrorCode);
     }
@@ -48,16 +48,8 @@ public sealed class GetAnalysisQueryHandler : IRequestHandler<GetAnalysisQuery, 
     private static int Progress(AnalysisRun run) => run.Status switch
     {
         AnalysisStatus.Received => 0,
-        AnalysisStatus.Completed or AnalysisStatus.CompletedWithWarnings or AnalysisStatus.Failed => 100,
-        _ => run.Stage switch
-        {
-            AnalysisStage.Sanitizing => 20,
-            AnalysisStage.ExtractingEvidence => 40,
-            AnalysisStage.GroundingGameContext => 60,
-            AnalysisStage.GeneratingRepro => 80,
-            AnalysisStage.PersistingResult => 95,
-            _ => 10
-        }
+        AnalysisStatus.Completed or AnalysisStatus.CompletedWithWarnings => 100,
+        _ => run.ProgressPercent
     };
 
     private static string ToLowerCamel<T>(T value) where T : struct, Enum

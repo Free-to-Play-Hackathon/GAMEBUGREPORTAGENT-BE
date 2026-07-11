@@ -100,4 +100,34 @@ public class AnalysisRunRepository : IAnalysisRunRepository
             .Include(x => x.Steps)
             .FirstOrDefaultAsync(x => x.AnalysisRunId == analysisRunId, cancellationToken);
     }
+
+    public async Task<AnalysisCheckpoint?> GetCheckpointAsync(
+        AnalysisRunId runId,
+        AnalysisStage stage,
+        string stageVersion,
+        string inputHash,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.AnalysisCheckpoints
+            .FirstOrDefaultAsync(c =>
+                c.AnalysisRunId == runId &&
+                c.Stage == stage &&
+                c.StageVersion == stageVersion &&
+                c.InputHash == inputHash &&
+                c.Status == "Completed",
+                cancellationToken);
+    }
+
+    public async Task SaveCheckpointAsync(
+        AnalysisCheckpoint checkpoint,
+        CancellationToken cancellationToken)
+    {
+        var existing = await _dbContext.AnalysisCheckpoints
+            .FirstOrDefaultAsync(c => c.Id == checkpoint.Id, cancellationToken);
+
+        if (existing == null)
+        {
+            await _dbContext.AnalysisCheckpoints.AddAsync(checkpoint, cancellationToken);
+        }
+    }
 }

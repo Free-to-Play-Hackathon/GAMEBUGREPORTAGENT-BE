@@ -43,6 +43,11 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
             return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.Failed", "The analysis failed and has no validated result."));
         }
 
+        if (run.Status == AnalysisStatus.Cancelled)
+        {
+            return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.Cancelled", "The analysis was cancelled and has no validated result."));
+        }
+
         if (run.Status is not AnalysisStatus.Completed and not AnalysisStatus.CompletedWithWarnings)
         {
             return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.ResultNotReady", "The analysis result is not ready."));

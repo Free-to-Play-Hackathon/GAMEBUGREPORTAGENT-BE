@@ -8,7 +8,6 @@ public class AnalysisRun
     private readonly List<AnalysisWarning> _warnings = new();
     private readonly List<AnalysisAiExecution> _aiExecutions = new();
 
-    // For EF Core
     private AnalysisRun() { }
 
     private AnalysisRun(
@@ -23,7 +22,6 @@ public class AnalysisRun
         ReportId = reportId;
         Version = version;
         Status = AnalysisStatus.Received;
-        Stage = null;
         InputHash = inputHash;
         ConfigurationHash = configurationHash;
         SchemaVersion = schemaVersion;
@@ -41,14 +39,28 @@ public class AnalysisRun
     public string? ParserVersion { get; private set; }
     public string? RoutingPolicyVersion { get; private set; }
     public Guid? SelectedReproExecutionId { get; private set; }
+    public DateTimeOffset? QueuedAt { get; private set; }
     public DateTimeOffset? StartedAt { get; private set; }
+    public DateTimeOffset? LastHeartbeatAt { get; private set; }
     public DateTimeOffset? CompletedAt { get; private set; }
+    public int CurrentAttempt { get; private set; }
+    public int ProgressPercent { get; private set; }
+    public DateTimeOffset? CancellationRequestedAt { get; private set; }
+    public string? FailureCategory { get; private set; }
+    public int RetryCount { get; private set; }
+    public DateTimeOffset? NextRetryAt { get; private set; }
     public string? ErrorCode { get; private set; }
     public string? ResultReference { get; private set; }
-    public uint VersionToken { get; private set; } // Concurrency token
+    public uint VersionToken { get; private set; }
 
     public IReadOnlyCollection<AnalysisWarning> Warnings => _warnings.AsReadOnly();
     public IReadOnlyCollection<AnalysisAiExecution> AiExecutions => _aiExecutions.AsReadOnly();
+
+    public bool IsTerminal =>
+        Status is AnalysisStatus.Completed
+            or AnalysisStatus.CompletedWithWarnings
+            or AnalysisStatus.Failed
+            or AnalysisStatus.Cancelled;
 
     public static Result<AnalysisRun> Create(
         AnalysisRunId id,
@@ -81,25 +93,70 @@ public class AnalysisRun
         return new AnalysisRun(id, reportId, version, inputHash, configurationHash, schemaVersion);
     }
 
+    public Result Queue(DateTimeOffset queuedAt)
+    {
+        if (Status == AnalysisStatus.Queued)
+        {
+            return Result.Success();
+        }
+
+        if (Status != AnalysisStatus.Received)
+        {
+            return Result.Failure(new DomainError(
+                "AnalysisRun.InvalidStatusTransition",
+                $"Cannot transition from {Status} to Queued."));
+        }
+
+        Status = AnalysisStatus.Queued;
+        QueuedAt = queuedAt;
+        ProgressPercent = Math.Max(ProgressPercent, 5);
+        VersionToken++;
+
+        return Result.Success();
+    }
+
     public Result StartProcessing(
         string sanitizerVersion,
         string parserVersion,
         string routingPolicyVersion,
         DateTimeOffset startedAt)
     {
-        if (Status != AnalysisStatus.Received)
+        return StartProcessing(sanitizerVersion, parserVersion, routingPolicyVersion, Math.Max(CurrentAttempt + 1, 1), startedAt);
+    }
+
+    public Result StartProcessing(
+        string sanitizerVersion,
+        string parserVersion,
+        string routingPolicyVersion,
+        int attempt,
+        DateTimeOffset startedAt)
+    {
+        if (IsTerminal)
+        {
+            return Result.Success();
+        }
+
+        if (Status != AnalysisStatus.Queued && Status != AnalysisStatus.Received && Status != AnalysisStatus.Processing)
         {
             return Result.Failure(new DomainError(
                 "AnalysisRun.InvalidStatusTransition",
                 $"Cannot transition from {Status} to Processing."));
         }
 
+        if (CancellationRequestedAt.HasValue)
+        {
+            return Cancel(startedAt);
+        }
+
         SanitizerVersion = sanitizerVersion;
         ParserVersion = parserVersion;
         RoutingPolicyVersion = routingPolicyVersion;
-        StartedAt = startedAt;
+        StartedAt ??= startedAt;
+        LastHeartbeatAt = startedAt;
+        CurrentAttempt = Math.Max(CurrentAttempt, attempt);
         Status = AnalysisStatus.Processing;
-        Stage = AnalysisStage.Sanitizing;
+        Stage ??= AnalysisStage.Sanitizing;
+        ProgressPercent = Math.Max(ProgressPercent, StageStartPercent(Stage.Value));
         VersionToken++;
 
         return Result.Success();
@@ -114,14 +171,14 @@ public class AnalysisRun
                 "Cannot transition stage when run is not in Processing status."));
         }
 
-        // Validate linear stages:
-        // Sanitizing -> ExtractingEvidence -> GroundingGameContext -> GeneratingRepro -> PersistingResult
         bool isValidTransition = (Stage, nextStage) switch
         {
             (AnalysisStage.Sanitizing, AnalysisStage.ExtractingEvidence) => true,
             (AnalysisStage.ExtractingEvidence, AnalysisStage.GroundingGameContext) => true,
             (AnalysisStage.GroundingGameContext, AnalysisStage.GeneratingRepro) => true,
             (AnalysisStage.GeneratingRepro, AnalysisStage.PersistingResult) => true,
+            (AnalysisStage.SearchingDuplicates, AnalysisStage.PersistingResult) => true,
+            _ when Stage == nextStage => true,
             _ => false
         };
 
@@ -133,8 +190,33 @@ public class AnalysisRun
         }
 
         Stage = nextStage;
+        ProgressPercent = Math.Max(ProgressPercent, StageStartPercent(nextStage));
         VersionToken++;
         return Result.Success();
+    }
+
+    public Result BeginStage(AnalysisStage stage)
+    {
+        if (CancellationRequestedAt.HasValue)
+        {
+            return Cancel(DateTimeOffset.UtcNow);
+        }
+
+        if (Stage == stage)
+        {
+            ProgressPercent = Math.Max(ProgressPercent, StageStartPercent(stage));
+            VersionToken++;
+            return Result.Success();
+        }
+
+        return TransitionStage(stage);
+    }
+
+    public void CompleteStage(AnalysisStage stage)
+    {
+        ProgressPercent = Math.Max(ProgressPercent, StageCompletePercent(stage));
+        LastHeartbeatAt = DateTimeOffset.UtcNow;
+        VersionToken++;
     }
 
     public void AddAiExecution(AnalysisAiExecution execution)
@@ -145,6 +227,54 @@ public class AnalysisRun
     public void SetSelectedReproExecutionId(Guid executionId)
     {
         SelectedReproExecutionId = executionId;
+        VersionToken++;
+    }
+
+    public void RecordWarning(AnalysisWarning warning)
+    {
+        if (_warnings.All(existing => existing.Code != warning.Code))
+        {
+            _warnings.Add(warning);
+            VersionToken++;
+        }
+    }
+
+    public Result RequestCancellation(DateTimeOffset requestedAt)
+    {
+        if (IsTerminal)
+        {
+            return Result.Success();
+        }
+
+        CancellationRequestedAt ??= requestedAt;
+        VersionToken++;
+
+        if (Status is AnalysisStatus.Received or AnalysisStatus.Queued)
+        {
+            return Cancel(requestedAt);
+        }
+
+        return Result.Success();
+    }
+
+    public Result Cancel(DateTimeOffset completedAt)
+    {
+        if (IsTerminal)
+        {
+            return Result.Success();
+        }
+
+        CompletedAt = completedAt;
+        Status = AnalysisStatus.Cancelled;
+        Stage = null;
+        VersionToken++;
+
+        return Result.Success();
+    }
+
+    public void Heartbeat(DateTimeOffset heartbeatAt)
+    {
+        LastHeartbeatAt = heartbeatAt;
         VersionToken++;
     }
 
@@ -170,14 +300,28 @@ public class AnalysisRun
         ResultReference = resultReference;
         Status = _warnings.Any() ? AnalysisStatus.CompletedWithWarnings : AnalysisStatus.Completed;
         Stage = null;
+        ProgressPercent = 100;
         VersionToken++;
 
         return Result.Success();
     }
 
+    public Result CompleteWithWarnings(string resultReference, IReadOnlyCollection<AnalysisWarning> warnings, DateTimeOffset completedAt) =>
+        Complete(resultReference, warnings.Any() ? warnings : new[] { new AnalysisWarning("ANALYSIS_WARNING", "The analysis completed with warnings.") }, completedAt);
+
     public Result Fail(string errorCode, IReadOnlyCollection<AnalysisWarning> warnings, DateTimeOffset completedAt)
     {
-        if (Status != AnalysisStatus.Processing && Status != AnalysisStatus.Received)
+        return Fail(errorCode, warnings, completedAt, "Permanent");
+    }
+
+    public Result Fail(string errorCode, IReadOnlyCollection<AnalysisWarning> warnings, DateTimeOffset completedAt, string failureCategory)
+    {
+        if (IsTerminal)
+        {
+            return Result.Success();
+        }
+
+        if (Status != AnalysisStatus.Processing && Status != AnalysisStatus.Received && Status != AnalysisStatus.Queued)
         {
             return Result.Failure(new DomainError(
                 "AnalysisRun.InvalidFailureTransition",
@@ -192,11 +336,42 @@ public class AnalysisRun
         _warnings.Clear();
         _warnings.AddRange(warnings);
         ErrorCode = errorCode;
+        FailureCategory = failureCategory;
         CompletedAt = completedAt;
         Status = AnalysisStatus.Failed;
         Stage = null;
+        ProgressPercent = Math.Max(ProgressPercent, 100);
         VersionToken++;
 
         return Result.Success();
     }
+
+    public void ScheduleRetry(DateTimeOffset nextRetryAt)
+    {
+        RetryCount++;
+        NextRetryAt = nextRetryAt;
+        VersionToken++;
+    }
+
+    private static int StageStartPercent(AnalysisStage stage) => stage switch
+    {
+        AnalysisStage.Sanitizing => 5,
+        AnalysisStage.ExtractingEvidence => 20,
+        AnalysisStage.GroundingGameContext => 45,
+        AnalysisStage.GeneratingRepro => 60,
+        AnalysisStage.SearchingDuplicates => 90,
+        AnalysisStage.PersistingResult => 90,
+        _ => 0
+    };
+
+    private static int StageCompletePercent(AnalysisStage stage) => stage switch
+    {
+        AnalysisStage.Sanitizing => 20,
+        AnalysisStage.ExtractingEvidence => 45,
+        AnalysisStage.GroundingGameContext => 60,
+        AnalysisStage.GeneratingRepro => 90,
+        AnalysisStage.SearchingDuplicates => 90,
+        AnalysisStage.PersistingResult => 100,
+        _ => 0
+    };
 }

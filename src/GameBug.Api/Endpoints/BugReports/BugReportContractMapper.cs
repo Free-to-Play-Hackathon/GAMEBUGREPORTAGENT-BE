@@ -56,6 +56,7 @@ public static class BugReportContractMapper
             "Analysis.AlreadyInProgress" => (StatusCodes.Status409Conflict, "ANALYSIS_ALREADY_IN_PROGRESS", error.Description, false),
             "Analysis.ResultNotReady" => (StatusCodes.Status409Conflict, "ANALYSIS_RESULT_NOT_READY", error.Description, true),
             "Analysis.Failed" => (StatusCodes.Status409Conflict, "ANALYSIS_FAILED", error.Description, false),
+            "Analysis.Cancelled" => (StatusCodes.Status409Conflict, "ANALYSIS_CANCELLED", error.Description, false),
             "Validation.IdempotencyKeyRequired" => (StatusCodes.Status400BadRequest, "VALIDATION_FAILED", error.Description, false),
             "NO_SUPPORTED_TEXT_CONTENT" => (StatusCodes.Status422UnprocessableEntity, "NO_SUPPORTED_TEXT_CONTENT", error.Description, false),
             "UNSAFE_INPUT_REJECTED" => (StatusCodes.Status422UnprocessableEntity, "UNSAFE_INPUT_REJECTED", error.Description, false),

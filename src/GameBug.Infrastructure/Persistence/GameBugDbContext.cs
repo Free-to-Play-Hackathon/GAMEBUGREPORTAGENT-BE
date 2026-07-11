@@ -25,6 +25,11 @@ public class GameBugDbContext : DbContext, IUnitOfWork
     public DbSet<AuditEventEntity> AuditEvents => Set<AuditEventEntity>();
     public DbSet<AnalysisRun> AnalysisRuns => Set<AnalysisRun>();
     public DbSet<AnalysisAiExecution> AnalysisAiExecutions => Set<AnalysisAiExecution>();
+    public DbSet<AnalysisOutboxMessage> AnalysisOutboxMessages => Set<AnalysisOutboxMessage>();
+    public DbSet<AnalysisJob> AnalysisJobs => Set<AnalysisJob>();
+    public DbSet<AnalysisCheckpoint> AnalysisCheckpoints => Set<AnalysisCheckpoint>();
+    public DbSet<AnalysisAttempt> AnalysisAttempts => Set<AnalysisAttempt>();
+    public DbSet<AnalysisExecutionLease> AnalysisExecutionLeases => Set<AnalysisExecutionLease>();
     public DbSet<EvidenceFact> EvidenceFacts => Set<EvidenceFact>();
     public DbSet<EvidenceSource> EvidenceSources => Set<EvidenceSource>();
     public DbSet<EventTimelineEntry> EventTimelineEntries => Set<EventTimelineEntry>();

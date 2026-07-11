@@ -1,4 +1,5 @@
 using GameBug.Application.Abstractions.AI;
+using GameBug.Application.Abstractions.Jobs;
 using System.Security.Cryptography;
 using System.Text;
 using GameBug.Application.Abstractions.Persistence;
@@ -17,8 +18,8 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
     private readonly IIdempotencyStore _idempotency;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ICurrentUser _currentUser;
-    private readonly ISender _sender;
     private readonly IAiTaskRouter _aiTaskRouter;
+    private readonly IAnalysisOutboxStore _outbox;
 
     public StartAnalysisCommandHandler(
         IBugReportRepository reports,
@@ -26,16 +27,16 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
         IIdempotencyStore idempotency,
         IUnitOfWork unitOfWork,
         ICurrentUser currentUser,
-        ISender sender,
-        IAiTaskRouter aiTaskRouter)
+        IAiTaskRouter aiTaskRouter,
+        IAnalysisOutboxStore outbox)
     {
         _reports = reports;
         _runs = runs;
         _idempotency = idempotency;
         _unitOfWork = unitOfWork;
         _currentUser = currentUser;
-        _sender = sender;
         _aiTaskRouter = aiTaskRouter;
+        _outbox = outbox;
     }
 
     public async Task<Result<StartAnalysisResult>> Handle(StartAnalysisCommand request, CancellationToken cancellationToken)
@@ -113,22 +114,28 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
             }
 
             var run = created.Value;
+            var queued = run.Queue(now);
+            if (queued.IsFailure)
+            {
+                return Result.Failure<StartAnalysisResult>(queued.Error);
+            }
+
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
             await _runs.AddAsync(run, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _outbox.AddProcessAnalysisMessageAsync(run.Id, run.Version, cancellationToken);
 
             await _idempotency.UpdateAsync(reservation with
             {
                 Status = IdempotencyStatus.Completed,
                 ReportId = run.Id.Value
             }, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            await _sender.Send(new ProcessAnalysisCommand(run.Id.Value, request.ConfigurationProfile), cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
 
             return ToResult(run);
         }
         catch
         {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
             await _idempotency.DeleteAsync(scopedKey, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             throw;

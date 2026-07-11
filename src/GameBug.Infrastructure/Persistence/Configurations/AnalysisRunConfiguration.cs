@@ -73,11 +73,39 @@ public class AnalysisRunConfiguration : IEntityTypeConfiguration<AnalysisRun>
             .HasForeignKey(x => x.SelectedReproExecutionId)
             .OnDelete(DeleteBehavior.SetNull);
 
+        builder.Property(x => x.QueuedAt)
+            .HasColumnName("queued_at");
+
         builder.Property(x => x.StartedAt)
             .HasColumnName("started_at");
 
+        builder.Property(x => x.LastHeartbeatAt)
+            .HasColumnName("last_heartbeat_at");
+
         builder.Property(x => x.CompletedAt)
             .HasColumnName("completed_at");
+
+        builder.Property(x => x.CurrentAttempt)
+            .HasColumnName("current_attempt")
+            .IsRequired();
+
+        builder.Property(x => x.ProgressPercent)
+            .HasColumnName("progress_percent")
+            .IsRequired();
+
+        builder.Property(x => x.CancellationRequestedAt)
+            .HasColumnName("cancellation_requested_at");
+
+        builder.Property(x => x.FailureCategory)
+            .HasColumnName("failure_category")
+            .HasMaxLength(80);
+
+        builder.Property(x => x.RetryCount)
+            .HasColumnName("retry_count")
+            .IsRequired();
+
+        builder.Property(x => x.NextRetryAt)
+            .HasColumnName("next_retry_at");
 
         builder.Property(x => x.ErrorCode)
             .HasColumnName("error_code")
@@ -112,6 +140,11 @@ public class AnalysisRunConfiguration : IEntityTypeConfiguration<AnalysisRun>
             .IsUnique()
             .HasFilter("status IN ('Received', 'Queued', 'Processing')");
         builder.HasIndex(x => new { x.Status, x.StartedAt });
-        builder.ToTable(table => table.HasCheckConstraint("CK_analysis_runs_version", "version > 0"));
+        builder.ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_analysis_runs_version", "version > 0");
+            table.HasCheckConstraint("CK_analysis_runs_progress", "progress_percent >= 0 AND progress_percent <= 100");
+            table.HasCheckConstraint("CK_analysis_runs_retry_count", "retry_count >= 0");
+        });
     }
 }
