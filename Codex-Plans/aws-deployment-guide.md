@@ -1,14 +1,107 @@
-# AWS Lightsail Deployment Guide — GameBug Repro Agent
+# AWS EC2 Small Deployment Guide - GameBug Repro Agent
 
-**Stack**: .NET 10 · PostgreSQL/pgvector · MinIO · Docker Compose · Nginx · GitHub Actions  
-**Target**: AWS Lightsail $12/tháng (2 vCPU, 2 GB RAM, 60 GB SSD)  
-**Điều kiện tiên quyết**: Phase 8 đã implement và `dotnet test` green
+Mục tiêu của guide này là deploy bản **test/demo rẻ và dễ vận hành nhất** cho dự án hiện tại.
+
+**Chiến lược khuyến nghị**: 1 máy AWS EC2 `t3.small` chạy Docker Compose, host Nginx reverse proxy, PostgreSQL/pgvector và MinIO chạy cùng máy, image được build trực tiếp trên server từ source code.
+
+**Không dùng trong đường chính**: ECR, ECS, RDS, S3, Secrets Manager, GitHub Actions deploy tự động. Những thứ đó chuẩn hơn cho production nhưng làm tăng chi phí và độ phức tạp. Nếu cần, phần cuối có mục optional.
 
 ---
 
-## Giai đoạn 1 — Tạo Dockerfiles
+## 0. Kiến trúc demo
 
-### Bước 1: Dockerfile cho API
+```text
+Internet
+   |
+   | HTTP/HTTPS
+   v
+EC2 Public IPv4 / Elastic IP
+   |
+   v
+Host Nginx
+   |
+   | proxy_pass http://127.0.0.1:8080
+   v
+Docker Compose
+   |
+   |-- gamebug-api      (.NET API, exposes 127.0.0.1:8080)
+   |-- gamebug-worker   (.NET background worker)
+   |-- gamebug-postgres (PostgreSQL + pgvector)
+   |-- gamebug-minio    (attachment object storage)
+   `-- gamebug-minio-setup
+```
+
+### Vì sao cách này rẻ và dễ nhất
+
+- Chỉ cần 1 EC2 instance loại nhỏ.
+- Không cần ECR, không cần AWS IAM cho CI/CD lúc demo.
+- Không cần managed database hoặc object storage riêng.
+- Không expose PostgreSQL/MinIO ra internet.
+- API chỉ expose qua Nginx.
+- Evaluation endpoint chạy được vì environment dùng `Demo`, không phải `Production`.
+
+### Trade-off cần biết
+
+- Không phải high availability. Instance chết thì app tạm dừng.
+- DB và object storage nằm cùng EBS volume của EC2, nên cần snapshot/backup nếu muốn giữ lại.
+- Build image trên máy 2 GB RAM có thể chậm. Guide có thêm swap để tránh OOM.
+- Phù hợp demo/hackathon/test, không phải production dài hạn.
+- Nếu chỉ **stop** EC2 sau demo, phí compute dừng nhưng EBS volume và Elastic IP/public IPv4 liên quan vẫn có thể phát sinh phí. Muốn dừng gần như toàn bộ chi phí thì snapshot nếu cần, rồi terminate instance và release Elastic IP.
+
+---
+
+## 1. Chi phí dự kiến
+
+Khuyến nghị bắt đầu với **EC2 `t3.small` hoặc `t3a.small` On-Demand, Ubuntu 24.04, region `ap-southeast-1`**:
+
+| Hạng mục | Chi phí ước tính |
+|---|---:|
+| EC2 `t3.small`/`t3a.small` Linux, 2 vCPU, 2 GiB RAM | tính theo giờ, khoảng vài chục USD/tháng nếu chạy 24/7 tùy region |
+| EBS gp3 30 GB | tính theo GB-tháng |
+| Public IPv4 / Elastic IP | AWS tính phí public IPv4 theo giờ |
+| EBS snapshot backup | tùy dung lượng snapshot thực tế |
+| Domain riêng | tùy nhà cung cấp, Route 53 khoảng $0.50/tháng/hosted zone nếu dùng |
+| OpenAI API | tính riêng theo usage |
+| ECR | $0 vì guide chính không dùng ECR |
+
+Gợi ý để rẻ:
+
+- Dùng `t3.small` trước. Nếu build/evaluation thiếu RAM, đổi instance type lên `t3.medium` tạm thời.
+- Dùng EBS gp3 30 GB là đủ cho demo; tăng lên 50-60 GB nếu build Docker nhiều lần.
+- Nếu chưa cần domain/IP cố định, dùng public IP tự cấp của EC2. Nếu cần domain, dùng Elastic IP nhưng nhớ release sau demo.
+- Sau demo: stop instance để ngừng phí compute; nếu không dùng nữa thì snapshot dữ liệu cần giữ, terminate instance và delete/release tài nguyên còn lại.
+
+Nguồn AWS cần nhớ: EC2 On-Demand tính theo thời gian instance chạy; public IPv4 bị tính phí theo giờ; EBS tính theo dung lượng provisioned.
+
+---
+
+## 2. Chuẩn bị trong repo
+
+Các file sau nên được commit vào repo:
+
+```text
+src/GameBug.Api/Dockerfile
+src/GameBug.Worker/Dockerfile
+.dockerignore
+deploy/docker-compose.demo.yml
+deploy/nginx/gamebug.conf
+Codex-Plans/aws-deployment-guide.md
+```
+
+Các file sau **không commit**:
+
+```text
+.env
+deploy/.env
+/opt/gamebug/.env
+*.pem
+```
+
+Repo hiện tại đã có `.env.example` để người khác copy ra `.env` và tự điền key. Khi deploy server cũng làm tương tự: tạo `/opt/gamebug/repo/deploy/.env` thủ công.
+
+---
+
+## 3. Tạo Dockerfile cho API
 
 Tạo file `src/GameBug.Api/Dockerfile`:
 
@@ -17,27 +110,39 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Directory.Build.props Directory.Packages.props global.json ./
-COPY src/GameBug.Domain/GameBug.Domain.csproj             src/GameBug.Domain/
-COPY src/GameBug.Contracts/GameBug.Contracts.csproj       src/GameBug.Contracts/
-COPY src/GameBug.Application/GameBug.Application.csproj   src/GameBug.Application/
+COPY src/GameBug.Domain/GameBug.Domain.csproj src/GameBug.Domain/
+COPY src/GameBug.Contracts/GameBug.Contracts.csproj src/GameBug.Contracts/
+COPY src/GameBug.Application/GameBug.Application.csproj src/GameBug.Application/
 COPY src/GameBug.Infrastructure/GameBug.Infrastructure.csproj src/GameBug.Infrastructure/
-COPY src/GameBug.Api/GameBug.Api.csproj                   src/GameBug.Api/
+COPY src/GameBug.Api/GameBug.Api.csproj src/GameBug.Api/
+
 RUN dotnet restore src/GameBug.Api/GameBug.Api.csproj
 
 COPY src/ src/
 RUN dotnet publish src/GameBug.Api/GameBug.Api.csproj \
-    -c Release -o /app/publish --no-restore
+    -c Release \
+    -o /app/publish \
+    --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
-RUN adduser --disabled-password --no-create-home appuser
-COPY --from=build /app/publish .
-USER appuser
+
+RUN mkdir -p /app/evaluation/artifacts
+
+COPY --from=build /app/publish ./
+COPY evaluation ./evaluation
+RUN chown -R $APP_UID:0 /app
+
+USER $APP_UID
 EXPOSE 8080
 ENTRYPOINT ["dotnet", "GameBug.Api.dll"]
 ```
 
-### Bước 2: Dockerfile cho Worker
+Điểm quan trọng: API image phải copy thư mục `evaluation/`. Nếu thiếu thư mục này, `/api/v1/evaluations` sẽ không đọc được manifest, cases, ground truth và artifact output.
+
+---
+
+## 4. Tạo Dockerfile cho Worker
 
 Tạo file `src/GameBug.Worker/Dockerfile`:
 
@@ -46,42 +151,87 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Directory.Build.props Directory.Packages.props global.json ./
-COPY src/GameBug.Domain/GameBug.Domain.csproj             src/GameBug.Domain/
-COPY src/GameBug.Contracts/GameBug.Contracts.csproj       src/GameBug.Contracts/
-COPY src/GameBug.Application/GameBug.Application.csproj   src/GameBug.Application/
+COPY src/GameBug.Domain/GameBug.Domain.csproj src/GameBug.Domain/
+COPY src/GameBug.Contracts/GameBug.Contracts.csproj src/GameBug.Contracts/
+COPY src/GameBug.Application/GameBug.Application.csproj src/GameBug.Application/
 COPY src/GameBug.Infrastructure/GameBug.Infrastructure.csproj src/GameBug.Infrastructure/
-COPY src/GameBug.Worker/GameBug.Worker.csproj              src/GameBug.Worker/
+COPY src/GameBug.Worker/GameBug.Worker.csproj src/GameBug.Worker/
+
 RUN dotnet restore src/GameBug.Worker/GameBug.Worker.csproj
 
 COPY src/ src/
 RUN dotnet publish src/GameBug.Worker/GameBug.Worker.csproj \
-    -c Release -o /app/publish --no-restore
+    -c Release \
+    -o /app/publish \
+    --no-restore
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
-RUN adduser --disabled-password --no-create-home appuser
-COPY --from=build /app/publish .
-USER appuser
+
+COPY --from=build /app/publish ./
+RUN chown -R $APP_UID:0 /app
+
+USER $APP_UID
 ENTRYPOINT ["dotnet", "GameBug.Worker.dll"]
 ```
 
-### Bước 3: Test build local
+---
+
+## 5. Tạo `.dockerignore`
+
+Tạo file `.dockerignore` ở root:
+
+```dockerignore
+.git
+.github
+.vs
+.vscode
+**/bin
+**/obj
+**/TestResults
+**/.pytest_cache
+
+.env
+.env.*
+!.env.example
+
+deploy/.env
+deploy/.env.*
+!deploy/.env.example
+
+evaluation/artifacts/*
+!evaluation/artifacts/.gitkeep
+
+*.user
+*.suo
+*.pem
+*.key
+```
+
+Không ignore `evaluation/manifests`, `evaluation/cases`, `evaluation/ground-truth` vì API cần chúng trong image.
+
+---
+
+## 6. Test Docker build local
+
+Chạy từ root repo:
 
 ```powershell
-# Chạy từ root dự án
 docker build -t gamebug-api:local -f src/GameBug.Api/Dockerfile .
 docker build -t gamebug-worker:local -f src/GameBug.Worker/Dockerfile .
 ```
 
-Phải build thành công mới tiếp tục.
+Nếu build fail do thiếu Docker Desktop hoặc thiếu network restore NuGet, sửa xong local trước rồi mới deploy lên AWS.
 
 ---
 
-## Giai đoạn 2 — Docker Compose Production
+## 7. Tạo Docker Compose demo
 
-### Bước 4: Tạo `deploy/docker-compose.prod.yml`
+Tạo file `deploy/docker-compose.demo.yml`:
 
 ```yaml
+name: gamebug-demo
+
 services:
   postgres:
     image: pgvector/pgvector:0.8.4-pg16-bookworm
@@ -91,15 +241,15 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
-      retries: 5
-    networks:
-      - internal
+      retries: 10
 
   minio:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
@@ -108,39 +258,39 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - miniodata:/data
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - internal
 
   createbuckets:
     image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1
+    container_name: gamebug-minio-setup
     depends_on:
-      minio:
-        condition: service_healthy
+      - minio
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      until /usr/bin/mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}; do
+        echo 'waiting for minio...';
+        sleep 2;
+      done;
       /usr/bin/mc mb --ignore-existing local/${MINIO_BUCKET};
       exit 0;
       "
-    networks:
-      - internal
 
   api:
-    image: ${ECR_REGISTRY}/gamebug-api:${IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: src/GameBug.Api/Dockerfile
+    image: gamebug-api:demo
     container_name: gamebug-api
     restart: unless-stopped
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: Demo
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Database: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       ObjectStorage__Endpoint: minio:9000
       ObjectStorage__AccessKey: ${MINIO_ROOT_USER}
       ObjectStorage__SecretKey: ${MINIO_ROOT_PASSWORD}
@@ -148,27 +298,29 @@ services:
       ObjectStorage__UseSsl: "false"
       ObjectStorage__TimeoutSeconds: "30"
       Ai__OpenAI__ApiKey: ${OPENAI_API_KEY}
+      Ai__OpenAI__BaseUrl: https://api.openai.com/v1
+      Ai__Routes__ReportUnderstanding__Model: ${OPENAI_MODEL_REPORT}
+      Ai__Routes__ReproSynthesis__Model: ${OPENAI_MODEL_REPRO}
+      Evaluation__AllowlistedManifests__0: demo-v1
+      Evaluation__PerCaseTimeoutSeconds: "180"
+    ports:
+      - "127.0.0.1:8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       minio:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health/live || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    networks:
-      - internal
-      - web
+        condition: service_started
 
   worker:
-    image: ${ECR_REGISTRY}/gamebug-worker:${IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: src/GameBug.Worker/Dockerfile
+    image: gamebug-worker:demo
     container_name: gamebug-worker
     restart: unless-stopped
     environment:
-      DOTNET_ENVIRONMENT: Production
-      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      DOTNET_ENVIRONMENT: Demo
+      ConnectionStrings__Database: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       ObjectStorage__Endpoint: minio:9000
       ObjectStorage__AccessKey: ${MINIO_ROOT_USER}
       ObjectStorage__SecretKey: ${MINIO_ROOT_PASSWORD}
@@ -176,360 +328,734 @@ services:
       ObjectStorage__UseSsl: "false"
       ObjectStorage__TimeoutSeconds: "30"
       Ai__OpenAI__ApiKey: ${OPENAI_API_KEY}
+      Ai__OpenAI__BaseUrl: https://api.openai.com/v1
+      Ai__Routes__ReportUnderstanding__Model: ${OPENAI_MODEL_REPORT}
+      Ai__Routes__ReproSynthesis__Model: ${OPENAI_MODEL_REPRO}
+      Evaluation__WorkerHeartbeatIntervalSeconds: "30"
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - internal
-
-networks:
-  internal:
-  web:
-    external: true
+      minio:
+        condition: service_started
 
 volumes:
   pgdata:
   miniodata:
 ```
 
-### Bước 5: Tạo `deploy/nginx/nginx.conf`
+Lý do không dùng Docker network `web` external: Nginx chạy trên host sẽ không resolve được DNS container như `api:8080`. Vì vậy API publish vào `127.0.0.1:8080`, rồi Nginx proxy vào localhost.
+
+---
+
+## 8. Tạo cấu hình Nginx
+
+Tạo file `deploy/nginx/gamebug.conf`:
 
 ```nginx
-events { worker_connections 1024; }
+server {
+    listen 80;
+    server_name _;
 
-http {
-    upstream gamebug_api {
-        server api:8080;
-    }
+    client_max_body_size 64m;
 
-    # HTTP -> HTTPS redirect
-    server {
-        listen 80;
-        server_name _;
-        location /.well-known/acme-challenge/ { root /var/www/certbot; }
-        location / { return 301 https://$host$request_uri; }
-    }
-
-    # HTTPS
-    server {
-        listen 443 ssl;
-        server_name api.yourdomain.com;   # <-- đổi thành domain thật
-
-        ssl_certificate     /etc/letsencrypt/live/api.yourdomain.com/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/api.yourdomain.com/privkey.pem;
-        ssl_protocols       TLSv1.2 TLSv1.3;
-
-        client_max_body_size 64m;
-
-        location / {
-            proxy_pass         http://gamebug_api;
-            proxy_http_version 1.1;
-            proxy_set_header   Host $host;
-            proxy_set_header   X-Real-IP $remote_addr;
-            proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header   X-Forwarded-Proto $scheme;
-            proxy_read_timeout 120s;
-        }
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
     }
 }
 ```
 
-### Bước 6: Tạo `.env.production` trên server (KHÔNG commit)
-
-```bash
-# PostgreSQL
-POSTGRES_USER=gamebug_prod
-POSTGRES_PASSWORD=<strong-random-password>
-POSTGRES_DB=gamebug_production
-
-# MinIO
-MINIO_ROOT_USER=gamebug_minio
-MINIO_ROOT_PASSWORD=<strong-random-password>
-MINIO_BUCKET=gamebug-attachments
-
-# OpenAI
-OPENAI_API_KEY=sk-...
-
-# ECR (điền sau khi tạo ECR)
-ECR_REGISTRY=<account-id>.dkr.ecr.<region>.amazonaws.com
-IMAGE_TAG=latest
-```
+Nếu có domain và muốn HTTPS, Certbot sẽ tự thêm SSL config vào file này ở bước sau.
 
 ---
 
-## Giai đoạn 3 — Tạo Lightsail Instance
+## 9. Tạo EC2 instance small
 
-### Bước 7: Tạo instance trên AWS Console
+1. Vào AWS Console.
+2. Chọn region **Asia Pacific (Singapore) `ap-southeast-1`** nếu bạn đang dùng region đó.
+3. Mở **EC2** -> **Instances** -> **Launch instances**.
+4. Name: `gamebug-demo-ec2`.
+5. AMI: **Ubuntu Server 24.04 LTS (HVM), SSD Volume Type**.
+6. Architecture: **64-bit x86** để đơn giản nhất với Docker images hiện tại.
+7. Instance type:
+   - Khuyến nghị: **`t3.small`** hoặc **`t3a.small`** (2 vCPU, 2 GiB RAM).
+   - Nếu demo/evaluation bị thiếu RAM: stop instance rồi đổi lên **`t3.medium`**.
+8. Key pair:
+   - Chọn key pair có sẵn, hoặc tạo mới `gamebug-demo-key`.
+   - Tải file `.pem` và giữ cẩn thận. Không commit vào repo.
+9. Network settings:
+   - VPC: default VPC cũng được cho demo.
+   - Subnet: subnet public bất kỳ trong `ap-southeast-1`.
+   - Auto-assign public IP: **Enable** nếu chỉ demo nhanh.
+   - Nếu cần IP cố định/domain: sau khi tạo instance, allocate **Elastic IP** và associate vào instance.
+10. Security group: tạo mới `gamebug-demo-sg`.
 
-1. Vào **AWS Console** → **Lightsail** → **Create instance**
-2. Platform: **Linux/Unix**
-3. Blueprint: **OS Only** → **Ubuntu 24.04 LTS**
-4. Bundle: **$12/month** (2 GB RAM, 2 vCPU, 60 GB SSD)
-5. Instance name: `gamebug-prod`
-6. Click **Create instance**
+Inbound rules:
 
-### Bước 8: Gắn Static IP
+| Port | Mục đích | Source |
+|---:|---|---|
+| 22 | SSH | IP của bạn, ví dụ `x.x.x.x/32` |
+| 80 | HTTP/Nginx | Anywhere |
+| 443 | HTTPS/Nginx | Anywhere |
 
-1. Lightsail → **Networking** → **Create static IP**
-2. Attach tới instance `gamebug-prod`
-3. Ghi lại địa chỉ IP (ví dụ: `13.251.100.1`)
+Không mở port 5432, 9000, 9001 ra internet. Compose chỉ bind chúng vào `127.0.0.1`.
 
-### Bước 9: Mở Firewall ports
+Storage:
 
-Lightsail → instance → **Networking** tab → **Add rule**:
-- **Custom TCP 443** (HTTPS)
-- **Custom TCP 80** (HTTP → redirect HTTPS)
-- **SSH 22** đã có sẵn (giới hạn IP của bạn nếu muốn)
+- Root volume: **30 GB gp3**.
+- Encryption: bật mặc định nếu account có.
+- Delete on termination: bật nếu đây chỉ là demo và bạn có backup/snapshot riêng khi cần.
+
+Launch instance xong, ghi lại:
+
+- Public IPv4 DNS hoặc Public IPv4 address.
+- Elastic IP nếu bạn có allocate.
+- Key pair `.pem`.
+
+Lưu ý chi phí:
+
+- EC2 public IPv4 và Elastic IP đều có thể bị tính phí theo giờ.
+- Nếu chỉ stop instance, EBS volume vẫn còn tính phí.
+- Nếu terminate instance, nhớ release Elastic IP nếu đã tạo.
 
 ---
 
-## Giai đoạn 4 — Setup Server
+## 10. Setup server
 
 SSH vào server:
+
 ```bash
-ssh -i <lightsail-key.pem> ubuntu@<static-ip>
+chmod 400 <gamebug-demo-key.pem>
+ssh -i <gamebug-demo-key.pem> ubuntu@<ec2-public-ip-or-dns>
 ```
 
-### Bước 10: Cài Docker
+Cập nhật OS:
 
 ```bash
-sudo apt update && sudo apt upgrade -y
+sudo apt update
+sudo apt upgrade -y
+```
 
-# Install Docker
+Cài Docker:
+
+```bash
 curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker ubuntu
 newgrp docker
 
-# Verify
 docker --version
 docker compose version
 ```
 
-### Bước 11: Cài Nginx + Certbot
+Cài Git, Nginx, Certbot:
 
 ```bash
-sudo apt install -y nginx certbot python3-certbot-nginx
-
-# Test nginx
+sudo apt install -y git nginx certbot python3-certbot-nginx curl
+sudo systemctl enable nginx
 sudo systemctl status nginx
 ```
 
-### Bước 12: Tạo Docker network
+Tạo swap 2 GB để build .NET image đỡ bị OOM:
 
 ```bash
-docker network create web
-```
-
-### Bước 13: Clone repo và setup files
-
-```bash
-mkdir -p /opt/gamebug && cd /opt/gamebug
-
-# Copy docker-compose.prod.yml và nginx.conf lên server
-# (dùng scp hoặc rsync)
-scp -i <key.pem> deploy/docker-compose.prod.yml ubuntu@<ip>:/opt/gamebug/
-scp -i <key.pem> deploy/nginx/nginx.conf ubuntu@<ip>:/opt/gamebug/
-
-# Tạo .env production (nhập thủ công, KHÔNG copy file có secret)
-nano /opt/gamebug/.env
-# (Điền nội dung từ Bước 6)
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h
 ```
 
 ---
 
-## Giai đoạn 5 — Tạo ECR & Push Images
-
-### Bước 14: Tạo ECR repositories
+## 11. Clone repo lên server
 
 ```bash
-# Chạy trên máy local (cần AWS CLI đã cấu hình)
-aws ecr create-repository --repository-name gamebug-api    --region ap-southeast-1
-aws ecr create-repository --repository-name gamebug-worker --region ap-southeast-1
+sudo mkdir -p /opt/gamebug
+sudo chown ubuntu:ubuntu /opt/gamebug
+cd /opt/gamebug
+
+git clone https://github.com/Free-to-Play-Hackathon/GAMEBUGREPORTAGENT-BE.git repo
+cd repo
 ```
 
-Ghi lại ECR registry URL: `<account-id>.dkr.ecr.ap-southeast-1.amazonaws.com`
+Nếu repo private, dùng SSH deploy key hoặc GitHub token theo cách bạn đang dùng. Với demo, clone bằng HTTPS + token tạm thời cũng được, miễn không lưu token vào repo.
 
-### Bước 15: Push images lần đầu (thủ công)
+---
 
-```powershell
-# Trên máy local
-$REGION = "ap-southeast-1"
-$ACCOUNT = "<your-account-id>"
-$ECR = "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
+## 12. Tạo `.env` trên server
 
-# Login ECR
-aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ECR
+Tạo file `/opt/gamebug/repo/deploy/.env`:
 
-# Build và push API
-docker build -t gamebug-api:latest -f src/GameBug.Api/Dockerfile .
-docker tag gamebug-api:latest "$ECR/gamebug-api:latest"
-docker push "$ECR/gamebug-api:latest"
+```bash
+nano /opt/gamebug/repo/deploy/.env
+```
 
-# Build và push Worker
-docker build -t gamebug-worker:latest -f src/GameBug.Worker/Dockerfile .
-docker tag gamebug-worker:latest "$ECR/gamebug-worker:latest"
-docker push "$ECR/gamebug-worker:latest"
+Nội dung mẫu:
+
+```dotenv
+
+POSTGRES_USER=gamebug_demo
+POSTGRES_PASSWORD=replace-with-strong-password
+POSTGRES_DB=gamebug_db
+
+
+MINIO_ROOT_USER=gamebug_minio
+MINIO_ROOT_PASSWORD=replace-with-strong-password
+MINIO_BUCKET=gamebug-attachments
+
+OPENAI_API_KEY=sk
+OPENAI_MODEL_REPORT=gpt-4.1
+OPENAI_MODEL_REPRO=gpt-4.1
+```
+
+Quyền file:
+
+```bash
+chmod 600 /opt/gamebug/repo/deploy/.env
+```
+
+Lưu ý:
+
+- Không commit `.env`.
+- Người khác dùng repo thì copy `.env.example` rồi tự điền key của họ.
+- Server dùng file riêng ở `deploy/.env`.
+- `POSTGRES_DB` nên giữ là `gamebug_db` vì seed command hiện tại chỉ cho phép demo/local DB.
+
+---
+
+## 13. Build image trên server
+
+Chạy từ root repo:
+
+```bash
+cd /opt/gamebug/repo
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env build
+```
+
+Nếu build chậm trên `t3.small`, chờ là bình thường. Nếu fail do memory:
+
+```bash
+free -h
+docker system df
+docker builder prune
+```
+
+Sau đó thử build lại. Nếu vẫn OOM, stop EC2 rồi đổi instance type lên `t3.medium`, start lại và build tiếp.
+
+---
+
+## 14. Khởi động PostgreSQL và MinIO
+
+```bash
+cd /opt/gamebug/repo
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env up -d postgres minio createbuckets
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env ps
+```
+
+Kiểm tra:
+
+```bash
+docker exec gamebug-postgres pg_isready -U gamebug_demo -d gamebug_db
+curl http://127.0.0.1:9000/minio/health/live
 ```
 
 ---
 
-## Giai đoạn 6 — Deploy lần đầu
+## 15. Chạy EF migrations
 
-### Bước 16: Cấu hình Nginx và cấp SSL
-
-Trên server:
+Cách rẻ và sạch nhất cho demo: dùng SDK container một lần, không cần cài .NET SDK trực tiếp lên host.
 
 ```bash
-# Cấu hình domain DNS trỏ về Static IP trước (chờ propagate ~5-10 phút)
-# Sau đó:
+cd /opt/gamebug/repo
+
+docker run --rm \
+  --network gamebug-demo_default \
+  --env-file deploy/.env \
+  -v "$PWD:/src" \
+  -w /src \
+  mcr.microsoft.com/dotnet/sdk:10.0 \
+  bash -lc '
+    dotnet tool install --global dotnet-ef --version 10.* &&
+    export PATH="$PATH:/root/.dotnet/tools" &&
+    dotnet restore src/GameBug.Api/GameBug.Api.csproj &&
+    ConnectionStrings__Database="Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}" \
+    dotnet ef database update \
+      --project src/GameBug.Infrastructure \
+      --startup-project src/GameBug.Api \
+      --connection "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+  '
+```
+
+Guide đã đặt Compose project name là `gamebug-demo`, nên network mặc định là `gamebug-demo_default`. Nếu bạn đổi `name:` trong compose file, xem network thật bằng:
+
+```bash
+docker network ls
+```
+
+Thường network có dạng `<compose-name>_default`.
+
+Kiểm tra migration:
+
+```bash
+docker exec -it gamebug-postgres psql -U gamebug_demo -d gamebug_db -c '\dt'
+```
+
+---
+
+## 16. Seed demo data
+
+Seed bằng chính API image, chạy ở mode `Demo`:
+
+```bash
+cd /opt/gamebug/repo
+
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env run --rm api \
+  seed --dataset demo-v1 --confirm GAMEBUG_DEMO_RESET
+```
+
+Seed command sẽ:
+
+- Reset/import demo data có guard.
+- Chỉ chạy trong `Local`, `Demo`, `Test`.
+- Từ chối nếu thiếu `--confirm GAMEBUG_DEMO_RESET`.
+- Từ chối nếu connection string không giống demo/local DB.
+
+---
+
+## 17. Start API và Worker
+
+```bash
+cd /opt/gamebug/repo
+
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env up -d api worker
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env ps
+```
+
+Xem logs:
+
+```bash
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env logs -f api
+```
+
+Ở terminal khác:
+
+```bash
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env logs -f worker
+```
+
+Kiểm tra health local:
+
+```bash
+curl http://127.0.0.1:8080/health/live
+curl http://127.0.0.1:8080/health/ready
+```
+
+`/health/ready` chỉ ready khi:
+
+- DB connect được.
+- MinIO bucket tồn tại.
+- Worker đã ghi heartbeat gần đây.
+
+Nếu vừa start xong mà ready trả `503`, đợi 30-60 giây rồi thử lại.
+
+---
+
+## 18. Cấu hình Nginx HTTP
+
+Copy config:
+
+```bash
+sudo cp /opt/gamebug/repo/deploy/nginx/gamebug.conf /etc/nginx/sites-available/gamebug
+sudo ln -sf /etc/nginx/sites-available/gamebug /etc/nginx/sites-enabled/gamebug
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Test bằng IP:
+
+```bash
+curl http://<static-ip>/health/live
+curl http://<static-ip>/health/ready
+```
+
+Nếu chưa có domain, demo bằng HTTP/IP là đủ. Nếu có domain, tiếp tục bước HTTPS.
+
+---
+
+## 19. Bật HTTPS nếu có domain
+
+Trỏ DNS `api.yourdomain.com` về Elastic IP của EC2 trước. Nếu bạn không dùng Elastic IP mà dùng public IP tự cấp, IP có thể đổi sau mỗi lần stop/start instance.
+
+Sửa server_name:
+
+```bash
+sudo nano /etc/nginx/sites-available/gamebug
+```
+
+Đổi:
+
+```nginx
+server_name _;
+```
+
+thành:
+
+```nginx
+server_name api.yourdomain.com;
+```
+
+Reload Nginx:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Cấp certificate:
+
+```bash
 sudo certbot --nginx -d api.yourdomain.com
-
-# Copy nginx.conf đã chỉnh domain
-sudo cp /opt/gamebug/nginx.conf /etc/nginx/nginx.conf
-sudo nginx -t && sudo systemctl reload nginx
 ```
 
-> **Nếu chưa có domain**: Tạm thời dùng HTTP, bỏ SSL block trong nginx.conf.
-
-### Bước 17: Pull images và khởi động infra
+Test:
 
 ```bash
-cd /opt/gamebug
-
-# Đặt ECR vào env
-export ECR_REGISTRY="<account-id>.dkr.ecr.ap-southeast-1.amazonaws.com"
-
-# Login ECR trên server
-aws ecr get-login-password --region ap-southeast-1 | \
-  docker login --username AWS --password-stdin $ECR_REGISTRY
-
-# Khởi động infra (postgres + minio + createbuckets)
-docker compose -f docker-compose.prod.yml --env-file .env up -d postgres minio createbuckets
-
-# Chờ healthy
-docker compose -f docker-compose.prod.yml ps
-```
-
-### Bước 18: Chạy EF migrations trên server
-
-```bash
-# Cài .NET SDK 10 trên server (chỉ cần lần đầu)
-wget https://dot.net/v1/dotnet-install.sh
-bash dotnet-install.sh --channel 10.0
-export PATH="$HOME/.dotnet:$PATH"
-
-# Clone repo (hoặc copy source)
-cd ~ && git clone <your-repo-url> gamebug-src
-cd gamebug-src
-
-# Chạy migration
-ConnectionStrings__Database="Host=localhost;Port=5432;Database=gamebug_production;Username=gamebug_prod;Password=<pass>" \
-dotnet ef database update \
-  --project src/GameBug.Infrastructure \
-  --startup-project src/GameBug.Api
-```
-
-> **Cách khác**: Thêm migration tự động khi API khởi động (thêm `app.MigrateDatabase()` vào Program.cs).
-
-### Bước 19: Khởi động API + Worker
-
-```bash
-cd /opt/gamebug
-
-docker compose -f docker-compose.prod.yml --env-file .env up -d api worker
-
-# Xem logs
-docker compose -f docker-compose.prod.yml logs -f api
-docker compose -f docker-compose.prod.yml logs -f worker
-```
-
-### Bước 20: Kiểm tra health
-
-```bash
-curl http://localhost:8080/health/live
-# -> {"Status":"Healthy"}
-
-curl http://localhost:8080/health/ready
-# -> {"Status":"Ready"}
-
-# Qua Nginx/HTTPS:
+curl https://api.yourdomain.com/health/live
 curl https://api.yourdomain.com/health/ready
 ```
 
 ---
 
-## Giai đoạn 7 — GitHub Actions CI/CD
+## 20. Chạy evaluation demo
 
-### Bước 21: Tạo IAM User cho GitHub Actions
+Evaluation endpoint chỉ mở trong `Local`, `Demo`, `Test`, `Development`. Compose đã dùng `Demo`, nên endpoint hoạt động.
 
-**AWS Console** → **IAM** → **Users** → **Create user**:
-- Username: `github-actions-gamebug`
-- Permissions: attach policy inline:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "ecr:GetAuthorizationToken",
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage",
-        "ecr:PutImage",
-        "ecr:InitiateLayerUpload",
-        "ecr:UploadLayerPart",
-        "ecr:CompleteLayerUpload"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
-
-Tạo **Access Key** → ghi lại `AWS_ACCESS_KEY_ID` và `AWS_SECRET_ACCESS_KEY`.
-
-### Bước 22: Tạo SSH key cho GitHub Actions deploy
+Start evaluation:
 
 ```bash
-# Trên server
-ssh-keygen -t ed25519 -f ~/.ssh/github_actions -N ""
-cat ~/.ssh/github_actions.pub >> ~/.ssh/authorized_keys
-cat ~/.ssh/github_actions   # Copy private key này vào GitHub Secret
+RUN_ID=$(
+  curl -s -X POST http://127.0.0.1:8080/api/v1/evaluations \
+    -H "Content-Type: application/json" \
+    -H "Idempotency-Key: demo-$(date +%s)" \
+    -d '{"manifestId":"demo-v1","profile":"demo"}' \
+  | sed -n 's/.*"runId":"\([^"]*\)".*/\1/p'
+)
+
+echo "$RUN_ID"
 ```
 
-### Bước 23: Thêm GitHub Secrets
+Xem kết quả:
 
-**GitHub repo** → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**:
+```bash
+curl http://127.0.0.1:8080/api/v1/evaluations/$RUN_ID
+```
 
-| Secret Name | Giá trị |
+Download artifact:
+
+```bash
+curl -o evaluation-result-$RUN_ID.json \
+  http://127.0.0.1:8080/api/v1/evaluations/$RUN_ID/artifact
+```
+
+Qua domain:
+
+```bash
+curl https://api.yourdomain.com/api/v1/evaluations/$RUN_ID
+```
+
+Lưu ý: Evaluation hiện gọi OpenAI thật. Nếu key sai, hết quota hoặc network lỗi, run có thể `CompletedWithErrors` hoặc case fail. Xem logs API/Worker để biết lỗi provider.
+
+---
+
+## 21. Script deploy lại khi code thay đổi
+
+Tạo file `/opt/gamebug/deploy-gamebug.sh` trên server:
+
+```bash
+nano /opt/gamebug/deploy-gamebug.sh
+```
+
+Nội dung:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /opt/gamebug/repo
+
+git pull
+
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env build api worker
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env up -d postgres minio createbuckets
+
+docker run --rm \
+  --network gamebug-demo_default \
+  --env-file deploy/.env \
+  -v "$PWD:/src" \
+  -w /src \
+  mcr.microsoft.com/dotnet/sdk:10.0 \
+  bash -lc '
+    dotnet tool install --global dotnet-ef --version 10.* &&
+    export PATH="$PATH:/root/.dotnet/tools" &&
+    dotnet restore src/GameBug.Api/GameBug.Api.csproj &&
+    ConnectionStrings__Database="Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}" \
+    dotnet ef database update \
+      --project src/GameBug.Infrastructure \
+      --startup-project src/GameBug.Api \
+      --connection "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+  '
+
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env up -d api worker
+
+for i in {1..20}; do
+  if curl -fsS http://127.0.0.1:8080/health/ready; then
+    echo
+    echo "Deploy OK"
+    exit 0
+  fi
+
+  echo "Waiting for ready health..."
+  sleep 5
+done
+
+echo "Deploy finished but ready health did not pass."
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env ps
+exit 1
+```
+
+Cấp quyền:
+
+```bash
+chmod +x /opt/gamebug/deploy-gamebug.sh
+```
+
+Deploy lại:
+
+```bash
+/opt/gamebug/deploy-gamebug.sh
+```
+
+Nếu network không phải `gamebug-demo_default`, sửa script theo kết quả:
+
+```bash
+docker network ls
+```
+
+---
+
+## 22. Backup và restore cho demo
+
+### Cách đơn giản nhất: EBS snapshot hoặc EC2 AMI
+
+Trước ngày demo:
+
+1. EC2 -> Instances -> chọn `gamebug-demo-ec2`.
+2. Actions -> Image and templates -> **Create image** nếu muốn backup nguyên máy.
+3. Hoặc EC2 -> Volumes -> chọn root EBS volume -> Actions -> **Create snapshot** nếu chỉ cần backup disk.
+
+Nên tạo AMI/snapshot sau khi:
+
+- DB đã migrate.
+- Seed demo xong.
+- App health ready.
+- Bạn đã chạy thử evaluation thành công.
+
+Nếu chỉ demo trong thời gian ngắn, cách nhanh nhất là dùng `pg_dump` bên dưới và terminate EC2 sau khi xong.
+
+### Backup DB thủ công
+
+Tạo folder backup:
+
+```bash
+mkdir -p /opt/gamebug/backups
+```
+
+Dump DB:
+
+```bash
+docker exec gamebug-postgres pg_dump \
+  -U gamebug_demo \
+  -d gamebug_db \
+  -Fc \
+  -f /tmp/gamebug_db.dump
+
+docker cp gamebug-postgres:/tmp/gamebug_db.dump /opt/gamebug/backups/gamebug_db-$(date +%Y%m%d-%H%M%S).dump
+```
+
+Restore DB:
+
+```bash
+docker compose -f /opt/gamebug/repo/deploy/docker-compose.demo.yml --env-file /opt/gamebug/repo/deploy/.env stop api worker
+
+docker cp /opt/gamebug/backups/<dump-file>.dump gamebug-postgres:/tmp/restore.dump
+
+docker exec gamebug-postgres pg_restore \
+  -U gamebug_demo \
+  -d gamebug_db \
+  --clean \
+  --if-exists \
+  /tmp/restore.dump
+
+docker compose -f /opt/gamebug/repo/deploy/docker-compose.demo.yml --env-file /opt/gamebug/repo/deploy/.env up -d api worker
+```
+
+### Backup MinIO đơn giản
+
+Với demo, EBS snapshot/AMI thường đủ. Nếu muốn copy object ra ngoài:
+
+```bash
+mkdir -p /opt/gamebug/backups/minio-data
+docker cp gamebug-minio:/data /opt/gamebug/backups/minio-data/data-$(date +%Y%m%d-%H%M%S)
+```
+
+---
+
+## 23. Reset demo trước khi trình bày
+
+Nếu muốn về trạng thái sạch:
+
+```bash
+cd /opt/gamebug/repo
+
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env run --rm api \
+  seed --dataset demo-v1 --confirm GAMEBUG_DEMO_RESET
+
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env restart worker api
+```
+
+Chờ ready:
+
+```bash
+for i in {1..20}; do
+  curl -fsS http://127.0.0.1:8080/health/ready && break
+  sleep 5
+done
+```
+
+---
+
+## 24. Troubleshooting
+
+| Vấn đề | Cách kiểm tra | Cách xử lý nhanh |
+|---|---|---|
+| API không start | `docker logs gamebug-api` | Kiểm tra `.env`, OpenAI key, DB connection |
+| Worker không start | `docker logs gamebug-worker` | Kiểm tra DB, OpenAI key, MinIO |
+| `/health/live` fail | `docker ps` | Restart API: `docker compose ... restart api` |
+| `/health/ready` trả 503 | `docker logs gamebug-worker` | Đợi heartbeat 30-60 giây, kiểm tra bucket MinIO |
+| Nginx 502 | `sudo nginx -t`, `curl http://127.0.0.1:8080/health/live` | API chưa chạy hoặc port 8080 chưa bind |
+| Build OOM | `free -h`, `docker builder prune` | Tạo swap, hoặc stop EC2 rồi đổi lên `t3.medium` |
+| Migration fail | Xem output `dotnet ef` | Kiểm tra network `gamebug-demo_default` và connection string |
+| Seed bị từ chối | Xem lỗi seed | Environment phải là `Demo`, DB nên là `gamebug_db` |
+| Evaluation fail provider | `docker logs gamebug-api`, `docker logs gamebug-worker` | Kiểm tra `OPENAI_API_KEY`, quota, model name |
+| MinIO bucket missing | `curl http://127.0.0.1:9000/minio/health/live` | Chạy lại service `createbuckets` |
+| Disk đầy | `df -h`, `docker system df` | `docker image prune`, xóa artifact/log không cần |
+| Docker pull SDK báo `no space left on device` | `df -h`, `lsblk`, `docker system df` | Tăng EBS root volume lên 30GB+, grow filesystem, rồi prune Docker cache |
+
+Lệnh hữu ích:
+
+```bash
+cd /opt/gamebug/repo
+
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env ps
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env logs --tail=100 api
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env logs --tail=100 worker
+docker stats
+df -h
+free -h
+```
+
+Nếu Docker pull/publish báo hết disk khi tải `mcr.microsoft.com/dotnet/sdk:10.0`, tăng root EBS volume rồi mở rộng filesystem:
+
+```bash
+df -h
+lsblk
+```
+
+Trong AWS Console:
+
+1. EC2 -> Instances -> chọn `gamebug-demo-ec2`.
+2. Tab Storage -> click root Volume ID `vol-...`.
+3. Actions -> Modify volume.
+4. Size: `30 GiB` hoặc `40 GiB`, Type: `gp3`.
+5. Chờ volume state thành `in-use - completed` hoặc `optimizing`.
+
+Trên EC2, mở rộng partition/filesystem:
+
+```bash
+sudo growpart /dev/nvme0n1 1
+findmnt -no FSTYPE /
+```
+
+Nếu filesystem là `ext4`:
+
+```bash
+sudo resize2fs /dev/nvme0n1p1
+```
+
+Nếu filesystem là `xfs`:
+
+```bash
+sudo xfs_growfs -d /
+```
+
+Dọn Docker cache bị pull dở rồi chạy lại:
+
+```bash
+docker system prune -af
+df -h
+docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env build
+```
+
+---
+
+## 25. Checklist trước demo
+
+- [ ] `curl http://127.0.0.1:8080/health/live` trả `Healthy`.
+- [ ] `curl http://127.0.0.1:8080/health/ready` trả `Ready`.
+- [ ] URL public qua Nginx trả health OK.
+- [ ] OpenAI key thật đã cấu hình trong `deploy/.env`.
+- [ ] Seed demo đã chạy thành công.
+- [ ] Worker logs không có lỗi lặp liên tục.
+- [ ] Chạy thử một evaluation `demo-v1` thành công.
+- [ ] Đã tạo EBS snapshot/AMI hoặc `pg_dump` trước giờ trình bày.
+- [ ] Không mở port 5432, 9000, 9001 ra internet.
+
+---
+
+## 26. Optional: deploy tự động rất đơn giản bằng SSH
+
+Nếu muốn bấm merge/push rồi server tự deploy, cách rẻ nhất là GitHub Actions SSH vào server và chạy `/opt/gamebug/deploy-gamebug.sh`.
+
+Không cần ECR. Không cần AWS access key.
+
+GitHub secrets cần:
+
+| Secret | Giá trị |
 |---|---|
-| `AWS_ACCESS_KEY_ID` | IAM Access Key |
-| `AWS_SECRET_ACCESS_KEY` | IAM Secret Key |
-| `AWS_REGION` | `ap-southeast-1` |
-| `ECR_REGISTRY` | `<account-id>.dkr.ecr.ap-southeast-1.amazonaws.com` |
-| `LIGHTSAIL_HOST` | Static IP của server |
-| `LIGHTSAIL_SSH_KEY` | Nội dung file `~/.ssh/github_actions` |
-| `LIGHTSAIL_USER` | `ubuntu` |
+| `EC2_HOST` | Public IP, Elastic IP hoặc domain |
+| `EC2_USER` | `ubuntu` |
+| `EC2_SSH_KEY` | Private key được phép SSH vào server |
 
-### Bước 24: Tạo `.github/workflows/deploy.yml`
+Workflow mẫu `.github/workflows/deploy-demo.yml`:
 
 ```yaml
-name: CI/CD Deploy
+name: Deploy Demo
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-
-env:
-  DOTNET_VERSION: '10.0.x'
+  workflow_dispatch:
 
 jobs:
   test:
-    name: Build & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -541,162 +1067,54 @@ jobs:
       - run: dotnet test --no-build --logger "console;verbosity=normal"
 
   deploy:
-    name: Deploy to AWS Lightsail
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push API image
-        env:
-          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/gamebug-api:$IMAGE_TAG \
-            -t $ECR_REGISTRY/gamebug-api:latest \
-            -f src/GameBug.Api/Dockerfile .
-          docker push $ECR_REGISTRY/gamebug-api:$IMAGE_TAG
-          docker push $ECR_REGISTRY/gamebug-api:latest
-
-      - name: Build and push Worker image
-        env:
-          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -t $ECR_REGISTRY/gamebug-worker:$IMAGE_TAG \
-            -t $ECR_REGISTRY/gamebug-worker:latest \
-            -f src/GameBug.Worker/Dockerfile .
-          docker push $ECR_REGISTRY/gamebug-worker:$IMAGE_TAG
-          docker push $ECR_REGISTRY/gamebug-worker:latest
-
-      - name: Deploy to server
+      - name: Deploy over SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.LIGHTSAIL_HOST }}
-          username: ${{ secrets.LIGHTSAIL_USER }}
-          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
-          script: |
-            export ECR_REGISTRY="${{ secrets.ECR_REGISTRY }}"
-            export IMAGE_TAG="${{ github.sha }}"
-            
-            cd /opt/gamebug
-            
-            # Login ECR
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-              docker login --username AWS --password-stdin $ECR_REGISTRY
-            
-            # Pull new images
-            docker compose -f docker-compose.prod.yml pull api worker
-            
-            # Rolling restart (zero-downtime nếu có 2+ replicas, ở đây đơn giản restart)
-            docker compose -f docker-compose.prod.yml --env-file .env up -d --no-deps api worker
-            
-            # Health check
-            sleep 15
-            curl -f http://localhost:8080/health/ready || exit 1
-            
-            echo "Deploy successful: $IMAGE_TAG"
-
-      - name: Health gate
-        run: |
-          sleep 10
-          curl -f https://${{ secrets.LIGHTSAIL_HOST }}/health/ready || \
-          echo "Warning: health check from outside failed (may need domain)"
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: /opt/gamebug/deploy-gamebug.sh
 ```
 
-### Bước 25: Cập nhật `.github/workflows/phase1-ci.yml`
+Lưu ý bảo mật:
 
-Đổi tên file cũ thành `ci.yml` hoặc xóa đi (đã được thay bởi `deploy.yml`).
+- SSH key chỉ dùng cho deploy server này.
+- Không đưa OpenAI key vào GitHub Actions nếu server đã có `deploy/.env`.
+- Nếu repo private, server cần quyền `git pull`.
 
 ---
 
-## Giai đoạn 8 — Seed Demo Data & Verify
+## 27. Optional: khi nào nên chuyển sang kiến trúc production
 
-### Bước 26: Seed historical tickets
+Chỉ cân nhắc sau hackathon/demo nếu app cần chạy thật lâu dài:
 
-```bash
-# Trên server, gọi API endpoint import:
-curl -X POST http://localhost:8080/api/v1/historical-tickets/import \
-  -H "Content-Type: application/json" \
-  -d @/opt/gamebug/seed/demo-v1-tickets.json
-
-# Hoặc dùng script:
-cd ~/gamebug-src && ./scripts/seed-demo.ps1
-```
-
-### Bước 27: Chạy golden E2E script
-
-```powershell
-# Trên máy local, trỏ vào production API:
-$env:GAMEBUG_API_BASE = "https://api.yourdomain.com"
-./scripts/demo-e2e.ps1
-# Phải exit code 0 và in ra artifact path + metrics
-```
-
-### Bước 28: Kiểm tra final
-
-```bash
-# API root
-curl https://api.yourdomain.com/
-# -> {"Name":"Game Bug Repro Agent API","Status":"Running",...}
-
-# Live health
-curl https://api.yourdomain.com/health/live
-# -> {"Status":"Healthy"}
-
-# Ready health (DB + MinIO + Worker heartbeat)
-curl https://api.yourdomain.com/health/ready
-# -> {"Status":"Ready"}
-```
-
----
-
-## Troubleshooting
-
-| Vấn đề | Lệnh kiểm tra |
+| Nhu cầu | Nên chuyển sang |
 |---|---|
-| Container không start | `docker compose -f docker-compose.prod.yml logs api` |
-| DB connection failed | `docker exec gamebug-postgres pg_isready` |
-| MinIO không healthy | `curl http://localhost:9000/minio/health/live` |
-| Out of memory | `free -h` và `docker stats` |
-| ECR login fail | `aws sts get-caller-identity` (check credentials) |
-| Migration chưa chạy | `docker exec gamebug-api dotnet-ef database update` |
+| Không muốn mất DB khi instance lỗi | RDS PostgreSQL |
+| Attachment cần bền và rẻ hơn | S3 |
+| Deploy image chuẩn hơn | ECR |
+| Auto scaling hoặc zero downtime | ECS/Fargate hoặc App Runner |
+| Secret rotation/audit | SSM Parameter Store hoặc Secrets Manager |
+| CI/CD không dùng SSH key | GitHub Actions OIDC + IAM role |
+
+Với mục tiêu hiện tại là test/demo rẻ trong lúc Lightsail chưa dùng được, EC2 `t3.small` + Docker Compose là hợp lý nhất.
 
 ---
 
-## Tóm tắt chi phí
+## 28. Tóm tắt CV DevOps cho bản demo này
 
-| Dịch vụ | Giá |
-|---|---|
-| Lightsail $12 plan | $12/tháng |
-| ECR storage (~1GB) | ~$0.10/tháng |
-| Static IP (instance đang chạy) | Miễn phí |
-| Route 53 (nếu dùng) | $0.50/tháng |
-| **Tổng** | **~$12.60/tháng** |
-
----
-
-## CV DevOps — Những gì bạn đã làm
-
-- **Docker** multi-stage build (.NET 10, non-root user, production-optimized)
-- **Docker Compose** multi-service orchestration với health checks và dependency ordering
-- **AWS Lightsail** VPS provisioning và management
-- **AWS ECR** Docker image registry với versioned tags (`sha` + `latest`)
-- **AWS IAM** least-privilege policy cho CI/CD
-- **GitHub Actions** CI/CD pipeline: build → test → ECR push → SSH deploy → health gate
-- **Nginx** reverse proxy với SSL/TLS termination (Let's Encrypt)
-- **PostgreSQL/pgvector** production deployment với persistent volumes
-- **Environment secrets** management (GitHub Secrets, server `.env`, no secrets in source)
-- **Health checks** (`/health/live` + `/health/ready`) với dependency validation
+- Docker multi-stage build cho .NET API và Worker.
+- Docker Compose orchestration cho API, Worker, PostgreSQL/pgvector, MinIO.
+- EC2 small provisioning với Security Group, public IPv4/Elastic IP và EBS gp3.
+- Host Nginx reverse proxy, optional HTTPS bằng Let's Encrypt.
+- Environment secrets qua server `.env`, không commit secret.
+- EF migrations bằng one-off SDK container.
+- Guarded seed/reset cho demo dataset.
+- Health checks `/health/live` và `/health/ready`.
+- Worker heartbeat readiness.
+- Backup bằng EBS snapshot/AMI và `pg_dump`.
+- Optional GitHub Actions deploy qua SSH.

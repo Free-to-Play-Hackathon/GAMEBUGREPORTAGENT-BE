@@ -108,7 +108,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 
-if (app.Environment.IsDevelopment())
+bool showSwagger = app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Demo") || app.Environment.IsEnvironment("Local");
+if (showSwagger)
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>
@@ -131,19 +132,23 @@ app.MapHistoricalTicketEndpoints();
 app.MapQaReviewEndpoints();
 app.MapEvaluationEndpoints();
 
-app.MapGet("/", (IHostEnvironment environment) => Results.Ok(new
+app.MapGet("/", (IHostEnvironment environment) => 
 {
-    Name = "Game Bug Repro Agent API",
-    Status = "Running",
-    Environment = environment.EnvironmentName,
-    Health = new
+    bool showSwaggerUi = environment.IsDevelopment() || environment.IsEnvironment("Demo") || environment.IsEnvironment("Local");
+    return Results.Ok(new
     {
-        Live = "/health/live",
-        Ready = "/health/ready"
-    },
-    Swagger = environment.IsDevelopment() ? "/swagger" : null,
-    OpenApi = environment.IsDevelopment() ? "/swagger/v1/swagger.json" : null
-}));
+        Name = "Game Bug Repro Agent API",
+        Status = "Running",
+        Environment = environment.EnvironmentName,
+        Health = new
+        {
+            Live = "/health/live",
+            Ready = "/health/ready"
+        },
+        Swagger = showSwaggerUi ? "/swagger" : null,
+        OpenApi = showSwaggerUi ? "/swagger/v1/swagger.json" : null
+    });
+});
 
 app.MapGet("/health/live", () => Results.Ok(new { Status = "Healthy" }));
 app.MapGet("/health/ready", async (
