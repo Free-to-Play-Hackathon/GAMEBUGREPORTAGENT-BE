@@ -84,10 +84,19 @@ public sealed class OpenAiStructuredAiGateway : IStructuredAiGateway
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            _logger.LogError(
+                "OpenAI Responses API request timed out for task {Task} and model {Model}",
+                task,
+                route.Model);
             throw new AiProviderException("PROVIDER_TIMEOUT", true);
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
+            _logger.LogError(
+                ex,
+                "OpenAI Responses API request failed for task {Task} and model {Model}",
+                task,
+                route.Model);
             throw new AiProviderException("PROVIDER_FAILURE", true);
         }
 
@@ -95,7 +104,11 @@ public sealed class OpenAiStructuredAiGateway : IStructuredAiGateway
         {
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogError("OpenAI Responses API call failed with status {Status}", response.StatusCode);
+                _logger.LogError(
+                    "OpenAI Responses API call failed with status {Status} for task {Task} and model {Model}",
+                    response.StatusCode,
+                    task,
+                    route.Model);
                 throw MapFailure(response.StatusCode);
             }
 

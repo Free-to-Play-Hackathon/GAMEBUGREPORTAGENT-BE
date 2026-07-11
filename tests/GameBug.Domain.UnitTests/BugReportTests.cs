@@ -195,4 +195,21 @@ public class BugReportTests
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("BugReport.InvalidStatusTransition");
     }
+
+    [Fact]
+    public void ApplyClarifiedMetadata_ShouldReplacePlaceholderMetadata()
+    {
+        var report = BugReport.Submit(
+            BugReportId.CreateUnique(),
+            "Valid description for bug report testing.",
+            "string", "string", null, null, null,
+            "User1",
+            DateTimeOffset.UtcNow).Value;
+
+        var result = report.ApplyClarifiedMetadata("1.2.3", "Windows", DateTimeOffset.UtcNow);
+
+        result.IsSuccess.Should().BeTrue();
+        report.BuildVersion.Should().Be("1.2.3");
+        report.Platform.Should().Be("Windows");
+    }
 }

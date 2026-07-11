@@ -50,6 +50,15 @@ else
     builder.Services.AddAuthentication();
 }
 builder.Services.AddAuthorization();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("DevelopmentFrontend", policy => policy
+        .SetIsOriginAllowed(origin =>
+            Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
+            (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("127.0.0.1")))
+        .AllowAnyHeader()
+        .AllowAnyMethod());
+});
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -104,6 +113,10 @@ if (args.FirstOrDefault()?.Equals("seed", StringComparison.OrdinalIgnoreCase) ==
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<SafeRequestLoggingMiddleware>();
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("DevelopmentFrontend");
+}
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();

@@ -137,11 +137,34 @@ internal sealed class AnswerClarificationCommandHandler : IRequestHandler<Answer
             await ReleaseReservationAsync(idempotency.Value, cancellationToken);
             return Result.Failure<Guid>(new DomainError("AnswerClarification.ReportNotFound", "Bug report not found."));
         }
+
+        string? clarifiedBuildVersion = null;
+        string? clarifiedPlatform = null;
+        foreach (var answerInput in request.Answers)
+        {
+            var question = clarificationRequest.Questions.Single(q => q.Id.Value == answerInput.QuestionId);
+            if (question.QuestionText.Contains("build", StringComparison.OrdinalIgnoreCase))
+            {
+                clarifiedBuildVersion = answerInput.AnswerText;
+            }
+            else if (question.QuestionText.Contains("platform", StringComparison.OrdinalIgnoreCase))
+            {
+                clarifiedPlatform = answerInput.AnswerText;
+            }
+        }
+
+        var metadataUpdate = report.ApplyClarifiedMetadata(clarifiedBuildVersion, clarifiedPlatform, _clock.UtcNow);
+        if (metadataUpdate.IsFailure)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure<Guid>(metadataUpdate.Error);
+        }
+
         var latestRun = await _analysisRunRepository.GetLatestByReportIdAsync(report.Id, cancellationToken);
         
         // Recompute input hash (including new answers in the hashing context)
         int nextVersion = (latestRun?.Version ?? oldAnalysisRun.Version) + 1;
-        string baseData = $"{report.Id.Value}|{nextVersion}|{report.Description}";
+        string baseData = $"{report.Id.Value}|{nextVersion}|{report.Description}|{report.BuildVersion}|{report.Platform}";
         string clarificationContext = string.Join("|", request.Answers.Select(a => $"{a.QuestionId}:{a.AnswerText}"));
         string newInputHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(baseData + "|" + clarificationContext)));
 

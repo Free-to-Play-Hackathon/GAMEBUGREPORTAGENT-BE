@@ -212,6 +212,26 @@ public class BugReport
         return Result.Success();
     }
 
+    public Result ApplyClarifiedMetadata(string? buildVersion, string? platform, DateTimeOffset updatedAt)
+    {
+        buildVersion = string.IsNullOrWhiteSpace(buildVersion) ? null : buildVersion.Trim();
+        platform = string.IsNullOrWhiteSpace(platform) ? null : platform.Trim();
+        if (buildVersion is { Length: > 64 })
+        {
+            return Result.Failure(new DomainError("BugReport.BuildVersionTooLong", "Build version cannot exceed 64 characters."));
+        }
+
+        if (platform is { Length: > 128 })
+        {
+            return Result.Failure(new DomainError("BugReport.PlatformTooLong", "Platform cannot exceed 128 characters."));
+        }
+
+        BuildVersion = buildVersion ?? BuildVersion;
+        Platform = platform ?? Platform;
+        UpdatedAt = updatedAt;
+        return Result.Success();
+    }
+
     public Result BeginQaReview(DateTimeOffset startedAt)
     {
         return UpdateStatus(ReportStatus.UnderReview, startedAt);

@@ -106,12 +106,18 @@ public static class DependencyInjection
             .Validate(VisionOptions.IsValid, "Vision options are invalid.")
             .ValidateOnStart();
 
+        services.AddHttpClient<OpenAiVisualEvidenceExtractor>();
         services.AddScoped<IVisualEvidenceExtractor>(sp =>
         {
             var options = sp.GetRequiredService<IOptions<VisionOptions>>().Value;
-            return options.Enabled
-                ? new UnavailableVisualEvidenceExtractor()
-                : new DisabledVisualEvidenceExtractor();
+            if (!options.Enabled)
+            {
+                return new DisabledVisualEvidenceExtractor();
+            }
+
+            return options.Provider.Equals("OpenAI", StringComparison.OrdinalIgnoreCase)
+                ? sp.GetRequiredService<OpenAiVisualEvidenceExtractor>()
+                : new UnavailableVisualEvidenceExtractor();
         });
 
         // MinIO Object Storage
