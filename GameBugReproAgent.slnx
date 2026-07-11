@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GameBug.Api/GameBug.Api.csproj" />
+    <Project Path="src/GameBug.Application/GameBug.Application.csproj" />
+    <Project Path="src/GameBug.Contracts/GameBug.Contracts.csproj" />
+    <Project Path="src/GameBug.Domain/GameBug.Domain.csproj" />
+    <Project Path="src/GameBug.Infrastructure/GameBug.Infrastructure.csproj" />
+    <Project Path="src/GameBug.Worker/GameBug.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GameBug.Api.FunctionalTests/GameBug.Api.FunctionalTests.csproj" />
+    <Project Path="tests/GameBug.Application.UnitTests/GameBug.Application.UnitTests.csproj" />
+    <Project Path="tests/GameBug.ArchitectureTests/GameBug.ArchitectureTests.csproj" />
+    <Project Path="tests/GameBug.Domain.UnitTests/GameBug.Domain.UnitTests.csproj" />
+    <Project Path="tests/GameBug.IntegrationTests/GameBug.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

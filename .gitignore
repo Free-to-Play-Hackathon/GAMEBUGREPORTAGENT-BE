@@ -1,0 +1,204 @@
+# ============================================================
+# .NET / ASP.NET Core build artifacts
+# ============================================================
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+[Aa]rtifacts/
+[Pp]ublish/
+out/
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+# Compiled binaries and symbols
+*.dll
+*.exe
+*.pdb
+*.mdb
+*.cache
+*.nupkg
+*.snupkg
+
+# Keep explicitly vendored binaries when required
+!tools/**/*.dll
+!tools/**/*.exe
+
+# ============================================================
+# Visual Studio / MSBuild user state
+# ============================================================
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+*.csproj.user
+*.fsproj.user
+*.vbproj.user
+*.vcxproj.user
+*.pubxml.user
+*.publishproj
+*.builds
+*.pidb
+*.svclog
+GeneratedArtifacts/
+
+# Visual Studio profiler, code coverage and test output
+*.psess
+*.vsp
+*.vspx
+*.sap
+*.coverage
+*.coveragexml
+coverage/
+coverage-*/
+coverage.*
+*.trx
+
+# ============================================================
+# JetBrains Rider / ReSharper
+# ============================================================
+.idea/
+_ReSharper*/
+*.DotSettings.user
+*.sln.iml
+
+# ============================================================
+# VS Code local state
+# Keep shared recommendations/tasks, ignore personal overrides.
+# ============================================================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/settings.json
+*.code-workspace
+
+# ============================================================
+# NuGet
+# packages/ is ignored for packages.config projects. Package lock
+# files remain tracked to keep restores reproducible.
+# ============================================================
+packages/
+*.nuget.props
+*.nuget.targets
+
+# ============================================================
+# Secrets and environment-specific local configuration
+# Never commit real credentials. Commit only sanitized examples.
+# ============================================================
+.env
+.env.*
+!.env.example
+!.env.*.example
+secrets.json
+secrets.*.json
+appsettings.*.local.json
+appsettings.Local.json
+appsettings.Secrets.json
+appsettings.Production.json
+appsettings.Staging.json
+*.secrets.json
+
+# ASP.NET Core Data Protection keys
+keys/
+DataProtection-Keys/
+*DataProtectionKeys*/
+
+# Certificates and private keys
+*.pfx
+*.p12
+*.pem
+*.key
+*.cer
+*.crt
+*.jks
+
+# Local cloud/provider credentials
+.aws/
+.azure/
+.config/gcloud/
+
+# ============================================================
+# Database, storage emulator and queue data
+# ============================================================
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.bak
+*.dump
+*.sql.gz
+pgdata/
+postgres-data/
+.minio.sys/
+minio-data/
+storage-data/
+azurite-data/
+__azurite_db_*.json
+__blobstorage__/
+__queuestorage__/
+
+# Uploaded files and runtime working directories
+uploads/
+tmp/
+temp/
+.tmp/
+runtime-data/
+
+# ============================================================
+# Docker local overrides and generated files
+# ============================================================
+docker-compose.override.yml
+compose.override.yml
+*.container.log
+
+# ============================================================
+# Frontend tooling (if dashboard is kept in the same repository)
+# ============================================================
+node_modules/
+.next/
+.nuxt/
+dist/
+.turbo/
+.parcel-cache/
+.eslintcache
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ============================================================
+# Generated benchmark/evaluation output
+# Source datasets and ground truth remain tracked.
+# ============================================================
+data/generated/
+data/output/
+docs/benchmark/results/
+benchmark-results/
+
+# ============================================================
+# Operating system and editor temporary files
+# ============================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.swp
+*.swo
+*.tmp
+*.temp
+*.orig
+*~
+
+# ============================================================
+# Local AI/review tool files
+# ============================================================
+.github/instructions/codacy.instructions.md
+
