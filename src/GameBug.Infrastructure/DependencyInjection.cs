@@ -16,6 +16,10 @@ using GameBug.Infrastructure.Jobs;
 using GameBug.Application.ReproCases;
 using GameBug.Infrastructure.Security;
 using GameBug.Infrastructure.Time;
+using GameBug.Application.Duplicates;
+using GameBug.Application.HistoricalTickets.ImportHistoricalTickets;
+using GameBug.Infrastructure.HistoricalTickets;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,7 +39,7 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException("ConnectionStrings:Database is required.");
 
         services.AddDbContext<GameBugDbContext>(options =>
-            options.UseNpgsql(connectionString));
+            options.UseNpgsql(connectionString, x => x.UseVector()));
 
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<GameBugDbContext>());
 
@@ -43,11 +47,14 @@ public static class DependencyInjection
         services.AddScoped<IBugReportRepository, BugReportRepository>();
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
         services.AddScoped<IAnalysisRunRepository, AnalysisRunRepository>();
+        services.AddScoped<IHistoricalTicketRepository, HistoricalTicketRepository>();
         services.AddScoped<IGameContextRepository, GameContextRepository>();
         services.AddScoped<IAnalysisOutboxStore, AnalysisOutboxStore>();
         services.AddScoped<IBackgroundJobQueue, DurableBackgroundJobQueue>();
         services.AddScoped<DurableBackgroundJobQueue>();
         services.AddScoped<IOutboxDispatcher, AnalysisOutboxDispatcher>();
+        services.AddScoped<IDuplicateDetectionService, DuplicateDetectionService>();
+        services.AddScoped<IHistoricalTicketIndexQueue, HistoricalTicketIndexQueue>();
         services.AddScoped<IAnalysisExecutionLock, AnalysisExecutionLock>();
         services.AddSingleton<IContentSanitizer, ContentSanitizer>();
         services.AddSingleton<ILogEvidenceExtractor, GenericCrashLogParser>();
@@ -101,6 +108,28 @@ public static class DependencyInjection
             .Validate(options => options.MaxAttempts is > 0 and <= 10, "Jobs:MaxAttempts must be between 1 and 10.")
             .ValidateOnStart();
 
+        services.AddOptions<DuplicateDetectionOptions>()
+            .Bind(configuration.GetSection(DuplicateDetectionOptions.SectionName))
+            .Validate(options => options.CandidateLimitPerChannel is > 0 and <= 100, "DuplicateDetection:CandidateLimitPerChannel must be between 1 and 100.")
+            .Validate(options => options.CandidatePoolLimit is > 0 and <= 100, "DuplicateDetection:CandidatePoolLimit must be between 1 and 100.")
+            .Validate(options => options.ResultLimit is > 0 and <= 10, "DuplicateDetection:ResultLimit must be between 1 and 10.")
+            .Validate(options => options.RrfConstant > 0, "DuplicateDetection:RrfConstant must be positive.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.RankerVersion), "DuplicateDetection:RankerVersion is required.")
+            .Validate(options => WeightsAreValid(options.SignalWeights), "DuplicateDetection:SignalWeights are invalid.")
+            .Validate(options => options.Thresholds.RelatedIssue < options.Thresholds.LikelyDuplicate, "DuplicateDetection thresholds must be increasing.")
+            .ValidateOnStart();
+
+        services.AddOptions<EmbeddingOptions>()
+            .Bind(configuration.GetSection(EmbeddingOptions.SectionName))
+            .Validate(options => !string.IsNullOrWhiteSpace(options.Provider), "Embedding:Provider is required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.Model), "Embedding:Model is required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.Version), "Embedding:Version is required.")
+            .Validate(options => options.Dimension is >= 8 and <= 4096, "Embedding:Dimension must be between 8 and 4096.")
+            .Validate(options => options.BatchSize is > 0 and <= 256, "Embedding:BatchSize must be between 1 and 256.")
+            .Validate(options => options.TimeoutSeconds is > 0 and <= 120, "Embedding:TimeoutSeconds must be between 1 and 120.")
+            .ValidateOnStart();
+        services.AddSingleton<IEmbeddingProvider, AI.Providers.DeterministicHashEmbeddingProvider>();
+
         // OpenAI Responses API gateway
         services.AddOptions<AI.AiRoutingOptions>()
             .Bind(configuration.GetSection(AI.AiRoutingOptions.SectionName))
@@ -128,4 +157,19 @@ public static class DependencyInjection
         !string.IsNullOrWhiteSpace(route.SchemaVersion) &&
         route.TimeoutSeconds is > 0 and <= 120 &&
         route.MaxOutputTokens > 0;
+
+    private static bool WeightsAreValid(SignalWeightOptions weights)
+    {
+        var values = new[]
+        {
+            weights.StackSignature,
+            weights.SemanticText,
+            weights.SceneOrFeature,
+            weights.TriggerAction,
+            weights.ActualResult,
+            weights.BuildPlatform
+        };
+
+        return values.All(value => value >= 0) && values.Sum() > 0;
+    }
 }

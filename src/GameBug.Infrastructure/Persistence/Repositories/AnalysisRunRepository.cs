@@ -123,7 +123,14 @@ public class AnalysisRunRepository : IAnalysisRunRepository
         CancellationToken cancellationToken)
     {
         var existing = await _dbContext.AnalysisCheckpoints
-            .FirstOrDefaultAsync(c => c.Id == checkpoint.Id, cancellationToken);
+            .FirstOrDefaultAsync(c =>
+                c.Id == checkpoint.Id ||
+                (c.AnalysisRunId == checkpoint.AnalysisRunId &&
+                 c.Stage == checkpoint.Stage &&
+                 c.StageVersion == checkpoint.StageVersion &&
+                 c.InputHash == checkpoint.InputHash &&
+                 c.Status == "Completed"),
+                cancellationToken);
 
         if (existing == null)
         {

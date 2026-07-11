@@ -9,6 +9,7 @@ using GameBug.Application.Abstractions.Security;
 using GameBug.Application.Analysis.GetAnalysis;
 using GameBug.Application.Analysis.GetAnalysisResult;
 using GameBug.Application.Analysis.StartAnalysis;
+using GameBug.Application.Duplicates;
 using GameBug.Application.Evidence;
 using GameBug.Application.ReproCases;
 using GameBug.Domain.Analysis;
@@ -175,6 +176,7 @@ Platform: iOS
         var aiRouter = Substitute.For<IAiTaskRouter>();
         var policy = new SeverityPolicy();
         var unitOfWork = Substitute.For<IUnitOfWork>();
+        var duplicateDetection = Substitute.For<IDuplicateDetectionService>();
         ReproCase? savedRepro = null;
 
         var mockReportId = new BugReportId(Guid.NewGuid());
@@ -232,6 +234,8 @@ Platform: iOS
                 Arg.Do<ReproCase>(value => savedRepro = value),
                 Arg.Any<CancellationToken>())
             .Returns(Task.CompletedTask);
+        duplicateDetection.DetectAsync(Arg.Any<AnalysisRun>(), Arg.Any<ReproCase>(), Arg.Any<EvidencePack>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateDetectionResult(Array.Empty<GameBug.Domain.Duplicates.DuplicateMatch>(), "input", "empty-index", "hash-embedding", "embedding-v1", "hybrid-v1"));
 
         var promptLoader = new GameBug.Infrastructure.AI.PromptLoader();
         var reproValidator = new ReproValidator(policy);
@@ -249,6 +253,7 @@ Platform: iOS
             aiRouter,
             promptLoader,
             reproValidator,
+            duplicateDetection,
             unitOfWork,
             NullLogger<ProcessAnalysisCommandHandler>.Instance);
 
@@ -259,7 +264,7 @@ Platform: iOS
 
         // Assert
         result.IsSuccess.Should().BeTrue(result.Error.Description);
-        run.Status.Should().Be(AnalysisStatus.Completed);
+        run.Status.Should().Be(AnalysisStatus.AwaitingQaReview);
         run.Stage.Should().BeNull();
 
         await runRepository.Received(1).SaveEvidencePackAsync(Arg.Any<EvidencePack>(), Arg.Any<CancellationToken>());
@@ -285,6 +290,7 @@ Platform: iOS
         var aiGateway = Substitute.For<IStructuredAiGateway>();
         var aiRouter = Substitute.For<IAiTaskRouter>();
         var unitOfWork = Substitute.For<IUnitOfWork>();
+        var duplicateDetection = Substitute.For<IDuplicateDetectionService>();
         var policy = new SeverityPolicy();
         var reproValidator = new ReproValidator(policy);
         var promptLoader = new GameBug.Infrastructure.AI.PromptLoader();
@@ -330,7 +336,7 @@ Platform: iOS
         var evidencePack = new EvidencePack(Guid.NewGuid(), runId, new List<EvidenceFact>(), new List<EventTimelineEntry>());
         var extractingCheckpoint = new AnalysisCheckpoint(
             Guid.NewGuid(), runId, AnalysisStage.ExtractingEvidence, "1.0.0", extractingInputHash, "Completed", 1, DateTimeOffset.UtcNow);
-        extractingCheckpoint.Complete(evidencePack.Id.ToString(), "[]", DateTimeOffset.UtcNow);
+        extractingCheckpoint.Complete(JsonSerializer.Serialize(new { Id = evidencePack.Id }), "[]", DateTimeOffset.UtcNow);
 
         runRepository.GetCheckpointAsync(runId, AnalysisStage.ExtractingEvidence, "1.0.0", extractingInputHash, Arg.Any<CancellationToken>())
             .Returns(extractingCheckpoint);
@@ -372,6 +378,8 @@ Platform: iOS
         aiGateway.GenerateStructuredResponseAsync(
                 AiTask.SynthesizeReproCase, Arg.Any<AiRoute>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new AiGenerationResult(mockLlmResponse, "test-provider", "test-model", "test-model", 1));
+        duplicateDetection.DetectAsync(Arg.Any<AnalysisRun>(), Arg.Any<ReproCase>(), Arg.Any<EvidencePack>(), Arg.Any<CancellationToken>())
+            .Returns(new DuplicateDetectionResult(Array.Empty<GameBug.Domain.Duplicates.DuplicateMatch>(), "input", "empty-index", "hash-embedding", "embedding-v1", "hybrid-v1"));
 
         var logger = Substitute.For<ILogger<ProcessAnalysisCommandHandler>>();
         logger.When(x => x.Log(
@@ -398,6 +406,7 @@ Platform: iOS
             aiRouter,
             promptLoader,
             reproValidator,
+            duplicateDetection,
             unitOfWork,
             logger);
 
@@ -420,7 +429,7 @@ Platform: iOS
             }
         }
         result.IsSuccess.Should().BeTrue(result.Error.Description);
-        run.Status.Should().Be(AnalysisStatus.CompletedWithWarnings);
+        run.Status.Should().Be(AnalysisStatus.AwaitingQaReview);
 
         // Verify Sanitizing was SKIPPED (sanitizer never called)
         sanitizer.DidNotReceiveWithAnyArgs().SanitizeDocument(Arg.Any<string>());
@@ -438,6 +447,7 @@ Platform: iOS
         // Verify that SaveCheckpointAsync was called for GroundingGameContext and GeneratingRepro
         await runRepository.Received(1).SaveCheckpointAsync(Arg.Is<AnalysisCheckpoint>(c => c.Stage == AnalysisStage.GroundingGameContext), Arg.Any<CancellationToken>());
         await runRepository.Received(1).SaveCheckpointAsync(Arg.Is<AnalysisCheckpoint>(c => c.Stage == AnalysisStage.GeneratingRepro), Arg.Any<CancellationToken>());
+        await runRepository.Received(1).SaveCheckpointAsync(Arg.Is<AnalysisCheckpoint>(c => c.Stage == AnalysisStage.SearchingDuplicates), Arg.Any<CancellationToken>());
 
         // Verify ReproCase was saved
         await runRepository.Received(1).SaveReproCaseAsync(Arg.Any<ReproCase>(), Arg.Any<CancellationToken>());

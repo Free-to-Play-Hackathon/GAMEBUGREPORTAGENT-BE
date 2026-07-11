@@ -12,7 +12,7 @@ public sealed class PersistenceModelTests
     private static GameBugDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<GameBugDbContext>()
-            .UseNpgsql("Host=localhost;Database=model_only;Username=test;Password=test")
+            .UseNpgsql("Host=localhost;Database=model_only;Username=test;Password=test", x => x.UseVector())
             .Options;
         return new GameBugDbContext(options);
     }
@@ -58,6 +58,7 @@ public sealed class PersistenceModelTests
             .Select(entity => entity.GetTableName())
             .Should().Contain(new[] { "bug_reports", "attachments", "idempotency_requests", "audit_events" });
         context.Model.GetEntityTypes()
+            .Where(e => e.GetTableName() != "historical_tickets" && e.GetTableName() != "embedding_cache")
             .SelectMany(entity => entity.GetProperties())
             .Should().NotContain(property => property.GetColumnType() == "vector");
     }

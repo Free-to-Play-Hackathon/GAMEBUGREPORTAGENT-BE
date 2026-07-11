@@ -1,6 +1,7 @@
 using FluentAssertions;
 using GameBug.Domain.Analysis;
 using GameBug.Domain.BugReports;
+using GameBug.Domain.Duplicates;
 using GameBug.Domain.Evidence;
 using Xunit;
 
@@ -38,5 +39,51 @@ public sealed class AnalysisDomainTests
             Guid.NewGuid(), "buildVersion", "Unknown", EvidenceStatus.Unknown, 0, Array.Empty<EvidenceSource>());
 
         result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DuplicateMatch_ShouldRejectInvalidRankAndScore()
+    {
+        var channelScores = new DuplicateChannelScores(1, 1, null, null, null, null, 0.1);
+        var signalScores = new DuplicateScoreBreakdown(1, 0.8, null, null, 0.8, null, null);
+
+        var badRank = DuplicateMatch.Create(
+            Guid.NewGuid(),
+            AnalysisRunId.CreateUnique(),
+            Guid.NewGuid(),
+            0,
+            0.8,
+            DuplicateClassification.RelatedIssue,
+            channelScores,
+            signalScores,
+            new[] { "normalizedStackSignature" },
+            Array.Empty<string>(),
+            "Safe explanation",
+            "hybrid-v1",
+            null,
+            null,
+            "snapshot",
+            DateTimeOffset.UtcNow);
+
+        var badScore = DuplicateMatch.Create(
+            Guid.NewGuid(),
+            AnalysisRunId.CreateUnique(),
+            Guid.NewGuid(),
+            1,
+            1.2,
+            DuplicateClassification.RelatedIssue,
+            channelScores,
+            signalScores,
+            new[] { "normalizedStackSignature" },
+            Array.Empty<string>(),
+            "Safe explanation",
+            "hybrid-v1",
+            null,
+            null,
+            "snapshot",
+            DateTimeOffset.UtcNow);
+
+        badRank.IsFailure.Should().BeTrue();
+        badScore.IsFailure.Should().BeTrue();
     }
 }

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using GameBug.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -13,9 +14,11 @@ using Pgvector;
 namespace GameBug.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(GameBugDbContext))]
-    partial class GameBugDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260711140234_Phase4PgvectorUpdate")]
+    partial class Phase4PgvectorUpdate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1090,64 +1093,6 @@ namespace GameBug.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("ticket_import_batches", (string)null);
-                });
-
-            modelBuilder.Entity("GameBug.Infrastructure.HistoricalTickets.HistoricalTicketIndexJobEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("integer")
-                        .HasColumnName("attempt_count");
-
-                    b.Property<DateTimeOffset>("AvailableAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("available_at");
-
-                    b.Property<DateTimeOffset?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("completed_at");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("LastErrorCode")
-                        .HasMaxLength(80)
-                        .HasColumnType("character varying(80)")
-                        .HasColumnName("last_error_code");
-
-                    b.Property<string>("LockedBy")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("locked_by");
-
-                    b.Property<DateTimeOffset?>("LockedUntil")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("locked_until");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
-                        .HasColumnName("status");
-
-                    b.Property<Guid>("TicketId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("ticket_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TicketId");
-
-                    b.HasIndex("Status", "AvailableAt");
-
-                    b.ToTable("historical_ticket_index_jobs", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_historical_ticket_index_jobs_attempt", "attempt_count >= 0");
-                        });
                 });
 
             modelBuilder.Entity("GameBug.Domain.Evidence.EventTimelineEntry", b =>

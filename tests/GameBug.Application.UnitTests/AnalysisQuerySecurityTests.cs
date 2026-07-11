@@ -3,8 +3,10 @@ using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Abstractions.Security;
 using GameBug.Application.Analysis.GetAnalysis;
 using GameBug.Application.Analysis.GetAnalysisResult;
+using GameBug.Application.Duplicates;
 using GameBug.Domain.Analysis;
 using GameBug.Domain.BugReports;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using Xunit;
 
@@ -16,6 +18,7 @@ public sealed class AnalysisQuerySecurityTests
     public async Task GetResult_ShouldReturnNotReadyBeforeCompletion()
     {
         var runs = Substitute.For<IAnalysisRunRepository>();
+        var historicalTickets = Substitute.For<IHistoricalTicketRepository>();
         var reports = Substitute.For<IBugReportRepository>();
         var user = Substitute.For<ICurrentUser>();
         var reportId = BugReportId.CreateUnique();
@@ -25,7 +28,13 @@ public sealed class AnalysisQuerySecurityTests
         reports.GetAsync(reportId, Arg.Any<CancellationToken>()).Returns(report);
         user.IsAuthenticated.Returns(true);
         user.UserId.Returns("owner");
-        var handler = new GetAnalysisResultQueryHandler(runs, reports, user);
+        var handler = new GetAnalysisResultQueryHandler(
+            runs,
+            historicalTickets,
+            reports,
+            user,
+            Options.Create(new EmbeddingOptions()),
+            Options.Create(new DuplicateDetectionOptions()));
 
         var result = await handler.Handle(new GetAnalysisResultQuery(run.Id.Value), CancellationToken.None);
 
@@ -38,6 +47,7 @@ public sealed class AnalysisQuerySecurityTests
     public async Task GetStatus_ShouldConcealAnotherUsersRun()
     {
         var runs = Substitute.For<IAnalysisRunRepository>();
+        var historicalTickets = Substitute.For<IHistoricalTicketRepository>();
         var reports = Substitute.For<IBugReportRepository>();
         var user = Substitute.For<ICurrentUser>();
         var reportId = BugReportId.CreateUnique();
@@ -59,6 +69,7 @@ public sealed class AnalysisQuerySecurityTests
     public async Task GetStatus_ShouldUseLowerCamelAndNullStageForCompletedRun()
     {
         var runs = Substitute.For<IAnalysisRunRepository>();
+        var historicalTickets = Substitute.For<IHistoricalTicketRepository>();
         var reports = Substitute.For<IBugReportRepository>();
         var user = Substitute.For<ICurrentUser>();
         var reportId = BugReportId.CreateUnique();
@@ -86,6 +97,7 @@ public sealed class AnalysisQuerySecurityTests
     public async Task GetResult_ShouldReturnAnalysisFailedForFailedRun()
     {
         var runs = Substitute.For<IAnalysisRunRepository>();
+        var historicalTickets = Substitute.For<IHistoricalTicketRepository>();
         var reports = Substitute.For<IBugReportRepository>();
         var user = Substitute.For<ICurrentUser>();
         var reportId = BugReportId.CreateUnique();
@@ -97,7 +109,13 @@ public sealed class AnalysisQuerySecurityTests
         user.IsAuthenticated.Returns(true);
         user.UserId.Returns("owner");
 
-        var result = await new GetAnalysisResultQueryHandler(runs, reports, user)
+        var result = await new GetAnalysisResultQueryHandler(
+                runs,
+                historicalTickets,
+                reports,
+                user,
+                Options.Create(new EmbeddingOptions()),
+                Options.Create(new DuplicateDetectionOptions()))
             .Handle(new GetAnalysisResultQuery(run.Id.Value), CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();

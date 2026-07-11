@@ -2,9 +2,11 @@ using System.Data;
 using GameBug.Application.Abstractions.Persistence;
 using GameBug.Domain.BugReports;
 using GameBug.Domain.Analysis;
+using GameBug.Domain.Duplicates;
 using GameBug.Domain.Evidence;
 using GameBug.Domain.ReproCases;
 using GameBug.Domain.GameContext;
+using GameBug.Infrastructure.HistoricalTickets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
@@ -37,9 +39,14 @@ public class GameBugDbContext : DbContext, IUnitOfWork
     public DbSet<ReproStep> ReproSteps => Set<ReproStep>();
     public DbSet<GameEntity> GameEntities => Set<GameEntity>();
     public DbSet<ExpectedBehavior> ExpectedBehaviors => Set<ExpectedBehavior>();
-
+    public DbSet<HistoricalTicket> HistoricalTickets => Set<HistoricalTicket>();
+    public DbSet<TicketImportBatch> TicketImportBatches => Set<TicketImportBatch>();
+    public DbSet<EmbeddingCacheEntry> EmbeddingCacheEntries => Set<EmbeddingCacheEntry>();
+    public DbSet<DuplicateMatch> DuplicateMatches => Set<DuplicateMatch>();
+    public DbSet<HistoricalTicketIndexJobEntity> HistoricalTicketIndexJobs => Set<HistoricalTicketIndexJobEntity>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasPostgresExtension("vector");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(GameBugDbContext).Assembly);
         base.OnModelCreating(modelBuilder);
     }

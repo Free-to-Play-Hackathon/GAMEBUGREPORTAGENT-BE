@@ -57,7 +57,8 @@ public class AnalysisRun
     public IReadOnlyCollection<AnalysisAiExecution> AiExecutions => _aiExecutions.AsReadOnly();
 
     public bool IsTerminal =>
-        Status is AnalysisStatus.Completed
+        Status is AnalysisStatus.AwaitingQaReview
+            or AnalysisStatus.Completed
             or AnalysisStatus.CompletedWithWarnings
             or AnalysisStatus.Failed
             or AnalysisStatus.Cancelled;
@@ -176,6 +177,7 @@ public class AnalysisRun
             (AnalysisStage.Sanitizing, AnalysisStage.ExtractingEvidence) => true,
             (AnalysisStage.ExtractingEvidence, AnalysisStage.GroundingGameContext) => true,
             (AnalysisStage.GroundingGameContext, AnalysisStage.GeneratingRepro) => true,
+            (AnalysisStage.GeneratingRepro, AnalysisStage.SearchingDuplicates) => true,
             (AnalysisStage.GeneratingRepro, AnalysisStage.PersistingResult) => true,
             (AnalysisStage.SearchingDuplicates, AnalysisStage.PersistingResult) => true,
             _ when Stage == nextStage => true,
@@ -210,6 +212,28 @@ public class AnalysisRun
         }
 
         return TransitionStage(stage);
+    }
+
+    public Result RestoreStageFromCheckpoint(AnalysisStage stage)
+    {
+        if (Status != AnalysisStatus.Processing)
+        {
+            return Result.Failure(new DomainError(
+                "AnalysisRun.NotInProcessing",
+                "Cannot restore a checkpoint when run is not in Processing status."));
+        }
+
+        if (CancellationRequestedAt.HasValue)
+        {
+            return Cancel(DateTimeOffset.UtcNow);
+        }
+
+        Stage = stage;
+        ProgressPercent = Math.Max(ProgressPercent, StageStartPercent(stage));
+        LastHeartbeatAt = DateTimeOffset.UtcNow;
+        VersionToken++;
+
+        return Result.Success();
     }
 
     public void CompleteStage(AnalysisStage stage)
@@ -299,6 +323,34 @@ public class AnalysisRun
         CompletedAt = completedAt;
         ResultReference = resultReference;
         Status = _warnings.Any() ? AnalysisStatus.CompletedWithWarnings : AnalysisStatus.Completed;
+        Stage = null;
+        ProgressPercent = 100;
+        VersionToken++;
+
+        return Result.Success();
+    }
+
+    public Result AwaitQaReview(string resultReference, IReadOnlyCollection<AnalysisWarning> warnings, DateTimeOffset completedAt)
+    {
+        if (Status != AnalysisStatus.Processing)
+        {
+            return Result.Failure(new DomainError(
+                "AnalysisRun.NotInProcessing",
+                "Cannot complete analysis run when it is not in Processing status."));
+        }
+
+        if (Stage != AnalysisStage.PersistingResult || string.IsNullOrWhiteSpace(resultReference))
+        {
+            return Result.Failure(new DomainError(
+                "AnalysisRun.ResultRequired",
+                "A completed analysis must have a persisted result reference."));
+        }
+
+        _warnings.Clear();
+        _warnings.AddRange(warnings);
+        CompletedAt = completedAt;
+        ResultReference = resultReference;
+        Status = AnalysisStatus.AwaitingQaReview;
         Stage = null;
         ProgressPercent = 100;
         VersionToken++;

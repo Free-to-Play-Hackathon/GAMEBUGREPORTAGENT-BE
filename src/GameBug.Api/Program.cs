@@ -80,6 +80,7 @@ if (!app.Environment.IsDevelopment())
 app.MapCreateBugReport();
 app.MapGetBugReport();
 app.MapAnalysisEndpoints();
+app.MapHistoricalTicketEndpoints();
 
 app.MapGet("/", (IHostEnvironment environment) => Results.Ok(new
 {

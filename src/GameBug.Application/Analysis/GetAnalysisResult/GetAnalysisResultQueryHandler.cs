@@ -1,25 +1,37 @@
 using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Abstractions.Security;
+using GameBug.Application.Duplicates;
 using GameBug.Domain.Analysis;
+using GameBug.Domain.Duplicates;
 using GameBug.Domain.SharedKernel;
 using MediatR;
+using Microsoft.Extensions.Options;
 
 namespace GameBug.Application.Analysis.GetAnalysisResult;
 
 public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQuery, Result<GetAnalysisResultDetails>>
 {
     private readonly IAnalysisRunRepository _analysisRunRepository;
+    private readonly IHistoricalTicketRepository _historicalTickets;
     private readonly IBugReportRepository _reports;
     private readonly ICurrentUser _currentUser;
+    private readonly EmbeddingOptions _embeddingOptions;
+    private readonly DuplicateDetectionOptions _duplicateOptions;
 
     public GetAnalysisResultQueryHandler(
         IAnalysisRunRepository analysisRunRepository,
+        IHistoricalTicketRepository historicalTickets,
         IBugReportRepository reports,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        IOptions<EmbeddingOptions> embeddingOptions,
+        IOptions<DuplicateDetectionOptions> duplicateOptions)
     {
         _analysisRunRepository = analysisRunRepository;
+        _historicalTickets = historicalTickets;
         _reports = reports;
         _currentUser = currentUser;
+        _embeddingOptions = embeddingOptions.Value;
+        _duplicateOptions = duplicateOptions.Value;
     }
 
     public async Task<Result<GetAnalysisResultDetails>> Handle(GetAnalysisResultQuery request, CancellationToken cancellationToken)
@@ -48,7 +60,7 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
             return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.Cancelled", "The analysis was cancelled and has no validated result."));
         }
 
-        if (run.Status is not AnalysisStatus.Completed and not AnalysisStatus.CompletedWithWarnings)
+        if (run.Status is not AnalysisStatus.Completed and not AnalysisStatus.CompletedWithWarnings and not AnalysisStatus.AwaitingQaReview)
         {
             return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.ResultNotReady", "The analysis result is not ready."));
         }
@@ -126,17 +138,50 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
         string? promptVersion = selectedExecution?.PromptVersion;
         string? modelProvider = selectedExecution?.Provider;
         string? modelName = selectedExecution?.ResolvedModel;
+        var matches = await _historicalTickets.GetDuplicateMatchesAsync(runId, 3, cancellationToken);
+        var candidates = new List<DuplicateCandidateDto>();
+        string? rankerVersion = null;
+        string? rerankerModel = null;
+        foreach (var match in matches)
+        {
+            var ticket = await _historicalTickets.GetByIdAsync(match.HistoricalTicketId, cancellationToken);
+            if (ticket is null)
+            {
+                continue;
+            }
+
+            rankerVersion ??= match.RankerVersion;
+            rerankerModel ??= match.RerankerModel;
+            var breakdown = match.SignalScores;
+            candidates.Add(new DuplicateCandidateDto(
+                ticket.ExternalId,
+                match.Rank,
+                Math.Round(match.FinalScore, 4),
+                ToLowerCamel(match.Classification),
+                match.Explanation,
+                match.MatchingSignals,
+                match.ConflictingSignals,
+                new DuplicateScoreBreakdownDto(
+                    breakdown.StackSignature,
+                    breakdown.SemanticText,
+                    breakdown.TriggerAction,
+                    breakdown.SceneOrFeature,
+                    breakdown.ActualResult,
+                    breakdown.BuildPlatform,
+                    breakdown.ScreenshotContext)));
+        }
 
         var result = new GetAnalysisResultDetails(
             run.Id.Value,
             factsDto,
             timelineDto,
             reproDto,
-            Array.Empty<object>(),
+            candidates,
             run.Warnings.Select(warning => warning.Code).ToArray(),
             new AnalysisMetadataDto(
                 run.Version, run.SchemaVersion, run.SanitizerVersion, run.ParserVersion,
-                promptVersion, modelProvider, modelName));
+                promptVersion, modelProvider, modelName,
+                _embeddingOptions.Model, _embeddingOptions.Version, rankerVersion ?? _duplicateOptions.RankerVersion, rerankerModel));
 
         return result;
     }

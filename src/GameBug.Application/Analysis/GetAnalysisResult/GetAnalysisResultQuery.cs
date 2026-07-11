@@ -10,7 +10,7 @@ public record GetAnalysisResultDetails(
     List<EvidenceFactDto> Facts,
     List<EventTimelineEntryDto> Timeline,
     ReproCaseDto ReproCase,
-    IReadOnlyList<object> DuplicateCandidates,
+    IReadOnlyList<DuplicateCandidateDto> DuplicateCandidates,
     IReadOnlyList<string> Warnings,
     AnalysisMetadataDto AnalysisMetadata);
 
@@ -21,7 +21,30 @@ public record AnalysisMetadataDto(
     string? ParserVersion,
     string? PromptVersion,
     string? ModelProvider,
-    string? ModelName);
+    string? ModelName,
+    string? EmbeddingModel,
+    string? EmbeddingVersion,
+    string? RankerVersion,
+    string? RerankerModel);
+
+public record DuplicateCandidateDto(
+    string TicketId,
+    int Rank,
+    double Score,
+    string Classification,
+    string Reason,
+    IReadOnlyList<string> MatchingSignals,
+    IReadOnlyList<string> ConflictingSignals,
+    DuplicateScoreBreakdownDto ScoreBreakdown);
+
+public record DuplicateScoreBreakdownDto(
+    double? StackSignature,
+    double? SemanticText,
+    double? TriggerAction,
+    double? SceneOrFeature,
+    double? ActualResult,
+    double? BuildPlatform,
+    double? ScreenshotContext);
 
 public record EvidenceFactDto(Guid Id, string FactType, string? NormalizedValue, string Status, double Confidence, List<EvidenceSourceDto> Sources);
 public record EvidenceSourceDto(Guid Id, string SourceType, string SourceRef, int? LineStart, int? LineEnd, string SanitizedExcerpt, string ExcerptHash, string TrustLevel);

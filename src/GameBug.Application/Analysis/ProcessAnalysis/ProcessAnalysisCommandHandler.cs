@@ -13,6 +13,7 @@ using GameBug.Application.Abstractions.Files;
 using GameBug.Application.Abstractions.Parsing;
 using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Abstractions.Security;
+using GameBug.Application.Duplicates;
 using GameBug.Application.Evidence;
 using GameBug.Application.ReproCases;
 using GameBug.Domain.Analysis;
@@ -45,6 +46,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
     private readonly IAiTaskRouter _aiTaskRouter;
     private readonly IPromptLoader _promptLoader;
     private readonly IReproValidator _reproValidator;
+    private readonly IDuplicateDetectionService _duplicateDetectionService;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<ProcessAnalysisCommandHandler> _logger;
 
@@ -61,6 +63,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         IAiTaskRouter aiTaskRouter,
         IPromptLoader promptLoader,
         IReproValidator reproValidator,
+        IDuplicateDetectionService duplicateDetectionService,
         IUnitOfWork unitOfWork,
         ILogger<ProcessAnalysisCommandHandler> logger)
     {
@@ -76,6 +79,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         _aiTaskRouter = aiTaskRouter;
         _promptLoader = promptLoader;
         _reproValidator = reproValidator;
+        _duplicateDetectionService = duplicateDetectionService;
         _unitOfWork = unitOfWork;
         _logger = logger;
     }
@@ -128,21 +132,21 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             var sanitizingCheckpoint = await _analysisRunRepository.GetCheckpointAsync(
                 run.Id, AnalysisStage.Sanitizing, "1.0.0", run.InputHash, cancellationToken);
 
-            if (sanitizingCheckpoint != null)
+            if (sanitizingCheckpoint != null &&
+                TryReadCheckpointPayload(sanitizingCheckpoint, AnalysisStage.Sanitizing, run.Id, _logger, out SanitizingCheckpointPayload? sanitizingPayload) &&
+                !string.IsNullOrWhiteSpace(sanitizingPayload!.SanitizedDescription))
             {
-                run.TransitionStage(AnalysisStage.Sanitizing);
-                var payload = JsonSerializer.Deserialize<SanitizingCheckpointPayload>(sanitizingCheckpoint.OutputReference!);
-                sanitizedDescription = payload!.SanitizedDescription;
-                if (payload.Warnings != null)
+                sanitizedDescription = sanitizingPayload.SanitizedDescription;
+                if (sanitizingPayload.Warnings != null)
                 {
-                    warnings.AddRange(payload.Warnings);
+                    warnings.AddRange(sanitizingPayload.Warnings);
                 }
                 _logger.LogInformation("Analysis {RunId} restored Sanitizing checkpoint.", run.Id.Value);
-                run.CompleteStage(AnalysisStage.Sanitizing);
+                RestoreCompletedStage(run, AnalysisStage.Sanitizing);
             }
             else
             {
-                run.BeginStage(AnalysisStage.Sanitizing);
+                EnsureDomainState(run.BeginStage(AnalysisStage.Sanitizing));
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
 
                 var sanitizedReport = _contentSanitizer.SanitizeDocument(report.Description);
@@ -182,28 +186,24 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             var extractingCheckpoint = await _analysisRunRepository.GetCheckpointAsync(
                 run.Id, AnalysisStage.ExtractingEvidence, "1.0.0", extractingInputHash, cancellationToken);
 
-            if (extractingCheckpoint != null)
+            bool hasValidExtractingReference = extractingCheckpoint != null &&
+                TryReadCheckpointPayload(extractingCheckpoint, AnalysisStage.ExtractingEvidence, run.Id, _logger, out CheckpointReferencePayload? extractingReference) &&
+                extractingReference!.Id != Guid.Empty;
+
+            if (hasValidExtractingReference)
             {
                 evidencePack = await _analysisRunRepository.GetEvidencePackAsync(run.Id, cancellationToken);
             }
 
-            if (extractingCheckpoint != null && evidencePack != null)
+            if (extractingCheckpoint != null && hasValidExtractingReference && evidencePack != null)
             {
-                run.TransitionStage(AnalysisStage.ExtractingEvidence);
-                if (!string.IsNullOrEmpty(extractingCheckpoint.WarningCodesJson))
-                {
-                    var stageWarnings = JsonSerializer.Deserialize<List<AnalysisWarning>>(extractingCheckpoint.WarningCodesJson);
-                    if (stageWarnings != null)
-                    {
-                        warnings.AddRange(stageWarnings);
-                    }
-                }
+                warnings.AddRange(ReadCheckpointWarnings(extractingCheckpoint, AnalysisStage.ExtractingEvidence, run.Id, _logger));
                 _logger.LogInformation("Analysis {RunId} restored ExtractingEvidence checkpoint.", run.Id.Value);
-                run.CompleteStage(AnalysisStage.ExtractingEvidence);
+                RestoreCompletedStage(run, AnalysisStage.ExtractingEvidence);
             }
             else
             {
-                run.TransitionStage(AnalysisStage.ExtractingEvidence);
+                EnsureDomainState(run.TransitionStage(AnalysisStage.ExtractingEvidence));
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
 
@@ -304,7 +304,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                     await _analysisRunRepository.SaveEvidencePackAsync(evidencePack, cancellationToken);
                     var cp = new AnalysisCheckpoint(
                         Guid.NewGuid(), run.Id, AnalysisStage.ExtractingEvidence, "1.0.0", extractingInputHash, "Started", 1, DateTimeOffset.UtcNow);
-                    cp.Complete(evidencePack.Id.ToString(), JsonSerializer.Serialize(stageWarnings), DateTimeOffset.UtcNow);
+                    cp.Complete(JsonSerializer.Serialize(new CheckpointReferencePayload(evidencePack.Id)), JsonSerializer.Serialize(stageWarnings), DateTimeOffset.UtcNow);
                     await _analysisRunRepository.SaveCheckpointAsync(cp, cancellationToken);
                     run.CompleteStage(AnalysisStage.ExtractingEvidence);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -329,25 +329,21 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             var groundingCheckpoint = await _analysisRunRepository.GetCheckpointAsync(
                 run.Id, AnalysisStage.GroundingGameContext, "1.0.0", groundingInputHash, cancellationToken);
 
-            if (groundingCheckpoint != null)
+            if (groundingCheckpoint != null &&
+                TryReadCheckpointPayload(groundingCheckpoint, AnalysisStage.GroundingGameContext, run.Id, _logger, out GroundingCheckpointPayload? groundingPayload))
             {
-                run.TransitionStage(AnalysisStage.GroundingGameContext);
-                var payload = JsonSerializer.Deserialize<GroundingCheckpointPayload>(groundingCheckpoint.OutputReference!);
-                if (payload != null)
+                matchedEntitiesDto = groundingPayload!.MatchedEntities ?? new List<GameEntityDto>();
+                matchedBehaviorsDto = groundingPayload.MatchedBehaviors ?? new List<ExpectedBehaviorDto>();
+                if (groundingPayload.Warnings != null)
                 {
-                    matchedEntitiesDto = payload.MatchedEntities;
-                    matchedBehaviorsDto = payload.MatchedBehaviors;
-                    if (payload.Warnings != null)
-                    {
-                        warnings.AddRange(payload.Warnings);
-                    }
+                    warnings.AddRange(groundingPayload.Warnings);
                 }
                 _logger.LogInformation("Analysis {RunId} restored GroundingGameContext checkpoint.", run.Id.Value);
-                run.CompleteStage(AnalysisStage.GroundingGameContext);
+                RestoreCompletedStage(run, AnalysisStage.GroundingGameContext);
             }
             else
             {
-                run.TransitionStage(AnalysisStage.GroundingGameContext);
+                EnsureDomainState(run.TransitionStage(AnalysisStage.GroundingGameContext));
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
 
@@ -446,28 +442,24 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             var reproCheckpoint = await _analysisRunRepository.GetCheckpointAsync(
                 run.Id, AnalysisStage.GeneratingRepro, reproRoute.PromptVersion, reproInputHash, cancellationToken);
 
-            if (reproCheckpoint != null)
+            bool hasValidReproReference = reproCheckpoint != null &&
+                TryReadCheckpointPayload(reproCheckpoint, AnalysisStage.GeneratingRepro, run.Id, _logger, out CheckpointReferencePayload? reproReference) &&
+                reproReference!.Id != Guid.Empty;
+
+            if (hasValidReproReference)
             {
                 reproCase = await _analysisRunRepository.GetReproCaseAsync(run.Id, cancellationToken);
             }
 
-            if (reproCheckpoint != null && reproCase != null)
+            if (reproCheckpoint != null && hasValidReproReference && reproCase != null)
             {
-                run.TransitionStage(AnalysisStage.GeneratingRepro);
-                if (!string.IsNullOrEmpty(reproCheckpoint.WarningCodesJson))
-                {
-                    var stageWarnings = JsonSerializer.Deserialize<List<AnalysisWarning>>(reproCheckpoint.WarningCodesJson);
-                    if (stageWarnings != null)
-                    {
-                        warnings.AddRange(stageWarnings);
-                    }
-                }
+                warnings.AddRange(ReadCheckpointWarnings(reproCheckpoint, AnalysisStage.GeneratingRepro, run.Id, _logger));
                 _logger.LogInformation("Analysis {RunId} restored GeneratingRepro checkpoint.", run.Id.Value);
-                run.CompleteStage(AnalysisStage.GeneratingRepro);
+                RestoreCompletedStage(run, AnalysisStage.GeneratingRepro);
             }
             else
             {
-                run.TransitionStage(AnalysisStage.GeneratingRepro);
+                EnsureDomainState(run.TransitionStage(AnalysisStage.GeneratingRepro));
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
 
@@ -603,7 +595,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                     await _analysisRunRepository.SaveReproCaseAsync(reproCase, cancellationToken);
                     var cp = new AnalysisCheckpoint(
                         Guid.NewGuid(), run.Id, AnalysisStage.GeneratingRepro, reproRoute.PromptVersion, reproInputHash, "Started", 1, DateTimeOffset.UtcNow);
-                    cp.Complete(reproCase.Id.ToString(), JsonSerializer.Serialize(stageWarnings), DateTimeOffset.UtcNow);
+                    cp.Complete(JsonSerializer.Serialize(new CheckpointReferencePayload(reproCase.Id)), JsonSerializer.Serialize(stageWarnings), DateTimeOffset.UtcNow);
                     await _analysisRunRepository.SaveCheckpointAsync(cp, cancellationToken);
                     run.CompleteStage(AnalysisStage.GeneratingRepro);
                     await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -618,8 +610,44 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                 _logger.LogInformation("Analysis {RunId} completed GeneratingRepro stage and saved checkpoint.", run.Id.Value);
             }
 
-            // 6. Persist results
-            run.TransitionStage(AnalysisStage.PersistingResult);
+            // 6. Search duplicate candidates
+            string duplicateInputHash = Hash($"{reproCase.Id}|{evidencePack.Id}|{factsStringForHash}|{reproCase.Title}|{reproCase.ActualResult}");
+            var duplicateCheckpoint = await _analysisRunRepository.GetCheckpointAsync(
+                run.Id, AnalysisStage.SearchingDuplicates, "hybrid-v1", duplicateInputHash, cancellationToken);
+
+            if (duplicateCheckpoint != null)
+            {
+                warnings.AddRange(ReadCheckpointWarnings(duplicateCheckpoint, AnalysisStage.SearchingDuplicates, run.Id, _logger));
+                _logger.LogInformation("Analysis {RunId} restored SearchingDuplicates checkpoint.", run.Id.Value);
+                RestoreCompletedStage(run, AnalysisStage.SearchingDuplicates);
+            }
+            else
+            {
+                EnsureDomainState(run.TransitionStage(AnalysisStage.SearchingDuplicates));
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
+
+                var duplicateResult = await _duplicateDetectionService.DetectAsync(run, reproCase!, evidencePack, cancellationToken);
+                var cp = new AnalysisCheckpoint(
+                    Guid.NewGuid(), run.Id, AnalysisStage.SearchingDuplicates, duplicateResult.RankerVersion, duplicateInputHash, "Started", 1, DateTimeOffset.UtcNow);
+                cp.Complete(
+                    JsonSerializer.Serialize(new DuplicateCheckpointPayload(
+                        duplicateResult.Matches.Count,
+                        duplicateResult.InputHash,
+                        duplicateResult.IndexSnapshotVersion,
+                        duplicateResult.EmbeddingModel,
+                        duplicateResult.EmbeddingVersion,
+                        duplicateResult.RankerVersion)),
+                    JsonSerializer.Serialize(Array.Empty<AnalysisWarning>()),
+                    DateTimeOffset.UtcNow);
+                await _analysisRunRepository.SaveCheckpointAsync(cp, cancellationToken);
+                run.CompleteStage(AnalysisStage.SearchingDuplicates);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Analysis {RunId} completed SearchingDuplicates stage and saved checkpoint.", run.Id.Value);
+            }
+
+            // 7. Persist results
+            EnsureDomainState(run.TransitionStage(AnalysisStage.PersistingResult));
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
 
@@ -627,7 +655,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             try
             {
                 run.CompleteStage(AnalysisStage.PersistingResult);
-                var completion = run.Complete($"analysis-results/{run.Id.Value}", warnings, DateTimeOffset.UtcNow);
+                var completion = run.AwaitQaReview($"analysis-results/{run.Id.Value}", warnings, DateTimeOffset.UtcNow);
                 if (completion.IsFailure)
                 {
                     throw new InvalidOperationException(completion.Error.Code);
@@ -734,6 +762,94 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
 
     private static string Hash(string value) =>
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    private static void EnsureDomainState(Result result)
+    {
+        if (result.IsFailure)
+        {
+            throw new InvalidOperationException(result.Error.Code);
+        }
+    }
+
+    private static void RestoreCompletedStage(AnalysisRun run, AnalysisStage stage)
+    {
+        EnsureDomainState(run.RestoreStageFromCheckpoint(stage));
+        run.CompleteStage(stage);
+    }
+
+    private static bool TryReadCheckpointPayload<TPayload>(
+        AnalysisCheckpoint checkpoint,
+        AnalysisStage stage,
+        AnalysisRunId runId,
+        ILogger<ProcessAnalysisCommandHandler> logger,
+        out TPayload? payload)
+        where TPayload : class
+    {
+        payload = null;
+        if (string.IsNullOrWhiteSpace(checkpoint.OutputReference))
+        {
+            logger.LogWarning(
+                "Ignoring {Stage} checkpoint for analysis {RunId} because output reference is empty.",
+                stage,
+                runId.Value);
+            return false;
+        }
+
+        try
+        {
+            payload = JsonSerializer.Deserialize<TPayload>(checkpoint.OutputReference);
+            if (payload is not null)
+            {
+                return true;
+            }
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Ignoring {Stage} checkpoint for analysis {RunId} because output reference is invalid JSON.",
+                stage,
+                runId.Value);
+        }
+
+        return false;
+    }
+
+    private static IReadOnlyCollection<AnalysisWarning> ReadCheckpointWarnings(
+        AnalysisCheckpoint checkpoint,
+        AnalysisStage stage,
+        AnalysisRunId runId,
+        ILogger<ProcessAnalysisCommandHandler> logger)
+    {
+        if (string.IsNullOrWhiteSpace(checkpoint.WarningCodesJson))
+        {
+            return Array.Empty<AnalysisWarning>();
+        }
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<List<AnalysisWarning>>(checkpoint.WarningCodesJson);
+            return parsed ?? (IReadOnlyCollection<AnalysisWarning>)Array.Empty<AnalysisWarning>();
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Ignoring warning payload for {Stage} checkpoint on analysis {RunId} because it is invalid JSON.",
+                stage,
+                runId.Value);
+            return Array.Empty<AnalysisWarning>();
+        }
+    }
+
+    private sealed record CheckpointReferencePayload(Guid Id);
+    private sealed record DuplicateCheckpointPayload(
+        int CandidateCount,
+        string InputHash,
+        string IndexSnapshotVersion,
+        string EmbeddingModel,
+        string EmbeddingVersion,
+        string RankerVersion);
 
     private class SanitizingCheckpointPayload
     {

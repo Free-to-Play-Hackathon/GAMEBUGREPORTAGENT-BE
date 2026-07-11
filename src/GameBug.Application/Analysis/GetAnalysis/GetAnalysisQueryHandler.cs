@@ -48,7 +48,7 @@ public sealed class GetAnalysisQueryHandler : IRequestHandler<GetAnalysisQuery, 
     private static int Progress(AnalysisRun run) => run.Status switch
     {
         AnalysisStatus.Received => 0,
-        AnalysisStatus.Completed or AnalysisStatus.CompletedWithWarnings => 100,
+        AnalysisStatus.AwaitingQaReview or AnalysisStatus.Completed or AnalysisStatus.CompletedWithWarnings => 100,
         _ => run.ProgressPercent
     };
 

@@ -49,6 +49,9 @@ Important tables:
 | `analysis_execution_locks` | Per-analysis lease to prevent concurrent duplicate consumers. |
 | `analysis_attempts` | Operational attempt history per job/run. |
 | `analysis_checkpoints` | Stage checkpoint metadata keyed by run, stage, version, and input hash. |
+| `historical_tickets` | Sanitized imported tickets used by exact, lexical, and vector duplicate retrieval. |
+| `ticket_import_batches` | Idempotent historical ticket import batches with accepted/rejected counts. |
+| `duplicate_matches` | Ranked candidate snapshots for completed duplicate search stages. |
 
 Useful stuck-run checks:
 
@@ -77,6 +80,37 @@ Safe recovery path:
 
 ---
 
+## 1.2 Duplicate Intelligence
+
+Phase 4 adds `SearchingDuplicates` after repro synthesis. The stage builds a sanitized search document, retrieves historical candidates through exact stack signature, lexical text, and deterministic embedding channels, persists ranked `duplicate_matches`, and moves the run to `AwaitingQaReview`.
+
+Useful checks:
+
+```sql
+select external_id, source, import_version, indexed_at
+from historical_tickets
+where indexed_at is null
+order by source_updated_at desc;
+
+select analysis_run_id, rank, historical_ticket_id, final_score, classification, ranker_version
+from duplicate_matches
+where analysis_run_id = :analysis_run_id
+order by rank;
+
+select id, source, status, accepted_count, rejected_count, completed_at
+from ticket_import_batches
+order by created_at desc;
+```
+
+Operational notes:
+
+- Re-importing the same source/file hash/import version returns the existing batch result.
+- Embedding model/version/dimension changes require a new import or reindex plan; do not reuse stale vectors.
+- If duplicate search finds no historical tickets, the analysis still reaches `AwaitingQaReview` with an empty candidate list.
+- AI reranking is disabled by default; deterministic ranking remains the source of score/order.
+
+---
+
 ## 2. Metrics & Alerting Thresholds
 
 We track pipeline health using the following prometheus-compatible metrics:
@@ -89,6 +123,8 @@ We track pipeline health using the following prometheus-compatible metrics:
 | `analysis_warning_count` | Counter | `warning_code` | Tracks warning frequency (e.g., `CONTEXT_CONFLICT`). |
 | `analysis_outbox_pending` | Gauge | none | Alert if the oldest pending message is older than the worker recovery target. |
 | `analysis_jobs_active` | Gauge | `queue` | Tracks claimed jobs. Alert on long processing lease age. |
+| `duplicate_candidate_pool_size` | Histogram | `ranker_version` | Tracks duplicate candidate pool size before result truncation. |
+| `duplicate_retrieval_duration_seconds` | Histogram | `channel` | Tracks exact, lexical, and vector retrieval latency. |
 
 ---
 
