@@ -1,0 +1,9 @@
+{
+  "caseId": "GB-HN-001",
+  "description": "Inventory opens but a purchased reward is missing from the equipment list.",
+  "buildVersion": "1.2.3",
+  "platform": "Windows",
+  "device": "PC",
+  "locale": "en-US",
+  "sessionReference": "eval-GB-HN-001"
+}

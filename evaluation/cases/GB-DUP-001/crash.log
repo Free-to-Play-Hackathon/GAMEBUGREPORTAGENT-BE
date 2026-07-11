@@ -1,0 +1,3 @@
+NullReferenceException: InventoryPanel.Refresh
+  at Game.Inventory.InventoryPanel.Refresh()
+  at Game.Inventory.InventoryController.OpenInventory()

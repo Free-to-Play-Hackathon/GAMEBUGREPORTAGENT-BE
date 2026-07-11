@@ -58,6 +58,10 @@ public static class BugReportContractMapper
             "Analysis.Failed" => (StatusCodes.Status409Conflict, "ANALYSIS_FAILED", error.Description, false),
             "Analysis.Cancelled" => (StatusCodes.Status409Conflict, "ANALYSIS_CANCELLED", error.Description, false),
             "HistoricalTicket.NotFound" => (StatusCodes.Status404NotFound, "HISTORICAL_TICKET_NOT_FOUND", error.Description, false),
+            "Evaluation.NotFound" => (StatusCodes.Status404NotFound, "EVALUATION_NOT_FOUND", error.Description, false),
+            "Evaluation.ManifestNotAllowed" => (StatusCodes.Status404NotFound, "EVALUATION_MANIFEST_NOT_ALLOWED", error.Description, false),
+            "Evaluation.ManifestRequired" => (StatusCodes.Status400BadRequest, "VALIDATION_FAILED", error.Description, false),
+            "Evaluation.ArtifactMissing" => (StatusCodes.Status404NotFound, "EVALUATION_ARTIFACT_MISSING", error.Description, false),
             "HistoricalTicketImport.InvalidItemCount" => (StatusCodes.Status400BadRequest, "VALIDATION_FAILED", error.Description, false),
             "HistoricalTicket.ProjectRequired" or "HistoricalTicket.InvalidSource" or "HistoricalTicket.InvalidExternalId" or "HistoricalTicket.ContentRequired" or "HistoricalTicket.SearchDocumentRequired" =>
                 (StatusCodes.Status422UnprocessableEntity, "INVALID_HISTORICAL_TICKET", error.Description, false),

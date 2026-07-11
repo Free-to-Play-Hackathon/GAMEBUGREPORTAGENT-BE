@@ -1,18 +1,25 @@
 using System.Threading.RateLimiting;
 using GameBug.Api.Configuration;
 using GameBug.Api.Endpoints.BugReports;
+using GameBug.Api.Endpoints.Evaluations;
 using GameBug.Api.Endpoints.QaDecisions;
 using GameBug.Api.Errors;
 using GameBug.Api.Middleware;
 using GameBug.Application;
 using GameBug.Infrastructure;
+using GameBug.Infrastructure.Configuration;
 using GameBug.Infrastructure.Files;
 using GameBug.Infrastructure.Persistence;
+using GameBug.Infrastructure.Seeding;
+using GameBug.Application.Abstractions.Persistence;
+using GameBug.Infrastructure.Evaluation;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Minio;
 using Minio.DataModel.Args;
+
+DotEnvLoader.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -55,6 +62,33 @@ builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
+if (args.FirstOrDefault()?.Equals("seed", StringComparison.OrdinalIgnoreCase) == true)
+{
+    string environmentName = app.Environment.EnvironmentName;
+    if (!app.Environment.IsEnvironment("Local") && !app.Environment.IsEnvironment("Demo") && !app.Environment.IsEnvironment("Test"))
+    {
+        throw new InvalidOperationException($"Seed/reset is only allowed in Local, Demo, or Test. Current environment: {environmentName}");
+    }
+
+    string confirm = ReadArg(args, "--confirm") ?? string.Empty;
+    if (!confirm.Equals("GAMEBUG_DEMO_RESET", StringComparison.Ordinal))
+    {
+        throw new InvalidOperationException("Refusing to seed/reset without --confirm GAMEBUG_DEMO_RESET.");
+    }
+
+    string connectionString = builder.Configuration.GetConnectionString("Database") ?? string.Empty;
+    if (!connectionString.Contains("localhost", StringComparison.OrdinalIgnoreCase) &&
+        !connectionString.Contains("gamebug_db", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("Refusing to seed a non-demo database connection string.");
+    }
+
+    string dataset = ReadArg(args, "--dataset") ?? "demo-v1";
+    using var scope = app.Services.CreateScope();
+    await scope.ServiceProvider.GetRequiredService<DemoDataSeeder>().SeedAsync(dataset, CancellationToken.None);
+    return;
+}
+
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<SafeRequestLoggingMiddleware>();
@@ -83,6 +117,7 @@ app.MapGetBugReport();
 app.MapAnalysisEndpoints();
 app.MapHistoricalTicketEndpoints();
 app.MapQaReviewEndpoints();
+app.MapEvaluationEndpoints();
 
 app.MapGet("/", (IHostEnvironment environment) => Results.Ok(new
 {
@@ -103,6 +138,8 @@ app.MapGet("/health/ready", async (
     GameBugDbContext database,
     IMinioClient minio,
     IOptions<ObjectStorageOptions> storageOptions,
+    IWorkerHeartbeatStore heartbeatStore,
+    IOptions<EvaluationOptions> evaluationOptions,
     CancellationToken cancellationToken) =>
 {
     try
@@ -110,8 +147,13 @@ app.MapGet("/health/ready", async (
         bool databaseReady = await database.Database.CanConnectAsync(cancellationToken);
         bool storageReady = await minio.BucketExistsAsync(
             new BucketExistsArgs().WithBucket(storageOptions.Value.BucketName), cancellationToken);
-        return databaseReady && storageReady
-            ? Results.Ok(new { Status = "Ready" })
+        DateTimeOffset? lastHeartbeat = await heartbeatStore.GetLastHeartbeatAsync("analysis-worker", cancellationToken);
+        int intervalSeconds = evaluationOptions.Value.WorkerHeartbeatIntervalSeconds;
+        bool workerReady = lastHeartbeat.HasValue &&
+            lastHeartbeat.Value > DateTimeOffset.UtcNow.AddSeconds(-2 * intervalSeconds);
+
+        return databaseReady && storageReady && workerReady
+            ? Results.Ok(new { Status = "Ready", WorkerLastHeartbeatAt = lastHeartbeat })
             : Results.Json(new { Status = "NotReady" }, statusCode: StatusCodes.Status503ServiceUnavailable);
     }
     catch
@@ -121,5 +163,18 @@ app.MapGet("/health/ready", async (
 });
 
 app.Run();
+
+static string? ReadArg(string[] values, string name)
+{
+    for (int index = 0; index < values.Length - 1; index++)
+    {
+        if (values[index].Equals(name, StringComparison.OrdinalIgnoreCase))
+        {
+            return values[index + 1];
+        }
+    }
+
+    return null;
+}
 
 public partial class Program { }

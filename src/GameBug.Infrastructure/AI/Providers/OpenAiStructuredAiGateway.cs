@@ -5,7 +5,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using GameBug.Application.Abstractions.AI;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -16,18 +15,15 @@ public sealed class OpenAiStructuredAiGateway : IStructuredAiGateway
     private readonly HttpClient _httpClient;
     private readonly OpenAiOptions _options;
     private readonly ILogger<OpenAiStructuredAiGateway> _logger;
-    private readonly IHostEnvironment _environment;
 
     public OpenAiStructuredAiGateway(
         HttpClient httpClient,
         IOptions<OpenAiOptions> options,
-        ILogger<OpenAiStructuredAiGateway> logger,
-        IHostEnvironment environment)
+        ILogger<OpenAiStructuredAiGateway> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
         _logger = logger;
-        _environment = environment;
     }
 
     public async Task<AiGenerationResult> GenerateStructuredResponseAsync(
@@ -42,14 +38,6 @@ public sealed class OpenAiStructuredAiGateway : IStructuredAiGateway
         if (string.IsNullOrWhiteSpace(_options.ApiKey) ||
             _options.ApiKey.Equals("mock", StringComparison.OrdinalIgnoreCase))
         {
-            if (_environment.IsDevelopment() || _environment.IsEnvironment("Testing"))
-            {
-                _logger.LogWarning("Using the explicitly configured development AI mock.");
-                return new AiGenerationResult(
-                    GetMockResponse(task, prompt), route.Provider, route.Model, route.Model,
-                    (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
-            }
-
             throw new AiProviderException("PROVIDER_AUTH_FAILURE", false);
         }
 
@@ -174,54 +162,4 @@ public sealed class OpenAiStructuredAiGateway : IStructuredAiGateway
     private static string? Hash(string? value) => string.IsNullOrWhiteSpace(value)
         ? null
         : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
-
-    private static string GetMockResponse(AiTask task, string prompt)
-    {
-        if (task == AiTask.NormalizeBugReport)
-        {
-            return JsonSerializer.Serialize(new
-            {
-                symptom = "Game client crashes",
-                action = "Open the affected game feature",
-                context = "Derived only from the sanitized player report",
-                missingInformation = Array.Empty<string>()
-            });
-        }
-
-        string build = MatchValue(prompt, "buildVersion") ?? "Unknown";
-        string platform = MatchValue(prompt, "platform") ?? "Unknown";
-        string exception = MatchValue(prompt, "crashException") ?? "an unknown error";
-
-        return JsonSerializer.Serialize(new
-        {
-            title = $"Crash due to {exception} on {platform}",
-            buildVersion = build,
-            platform,
-            preconditions = "Game client is running.",
-            steps = new[]
-            {
-                new
-                {
-                    order = 1,
-                    description = "Trigger the action leading to the crash.",
-                    stepType = "SuggestedToVerify",
-                    sourceId = (string?)null,
-                    inferenceReason = "The exact action sequence is not directly supported by evidence."
-                }
-            },
-            expectedResult = "The game continues without crashing.",
-            actualResult = $"Game client crashes with {exception}.",
-            severityEstimate = "High",
-            severityReason = "A supported crash blocks the current session.",
-            missingInformation = "Exact player actions before the crash are missing.",
-            confidence = 0.75
-        });
-    }
-
-    private static string? MatchValue(string prompt, string propertyName)
-    {
-        var match = System.Text.RegularExpressions.Regex.Match(
-            prompt, $@"""{System.Text.RegularExpressions.Regex.Escape(propertyName)}"":\s*""([^""]+)""");
-        return match.Success ? match.Groups[1].Value : null;
-    }
 }

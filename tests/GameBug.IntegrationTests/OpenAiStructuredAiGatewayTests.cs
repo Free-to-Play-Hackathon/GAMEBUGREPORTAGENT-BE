@@ -4,10 +4,8 @@ using System.Text.Json;
 using FluentAssertions;
 using GameBug.Application.Abstractions.AI;
 using GameBug.Infrastructure.AI.Providers;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using NSubstitute;
 using Xunit;
 
 namespace GameBug.IntegrationTests;
@@ -29,15 +27,13 @@ public sealed class OpenAiStructuredAiGatewayTests
             var response = new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    """{"id":"resp_123","model":"gpt-5.6-terra","output":[{"type":"message","content":[{"type":"output_text","text":"{\"title\":\"Crash\"}"}]}]}""",
+                    """{"id":"resp_123","model":"gpt-4.1","output":[{"type":"message","content":[{"type":"output_text","text":"{\"title\":\"Crash\"}"}]}]}""",
                     Encoding.UTF8,
                     "application/json")
             };
             response.Headers.Add("x-request-id", "req_secret_identifier");
             return response;
         });
-        var environment = Substitute.For<IHostEnvironment>();
-        environment.EnvironmentName.Returns(Environments.Production);
         var gateway = new OpenAiStructuredAiGateway(
             new HttpClient(handler),
             Options.Create(new OpenAiOptions
@@ -46,10 +42,9 @@ public sealed class OpenAiStructuredAiGatewayTests
                 BaseUrl = "https://api.openai.test/v1",
                 TimeoutSeconds = 60
             }),
-            NullLogger<OpenAiStructuredAiGateway>.Instance,
-            environment);
+            NullLogger<OpenAiStructuredAiGateway>.Instance);
         var route = new AiRoute(
-            "repro-synthesis", "OpenAI", "gpt-5.6-terra", "repro-v1",
+            "repro-synthesis", "OpenAI", "gpt-4.1", "repro-v1",
             "analysis-result-v1", "routing-v1", 30, 4096);
 
         var result = await gateway.GenerateStructuredResponseAsync(
@@ -62,14 +57,14 @@ public sealed class OpenAiStructuredAiGatewayTests
 
         result.Json.Should().Be("{\"title\":\"Crash\"}");
         result.Provider.Should().Be("OpenAI");
-        result.RequestedModel.Should().Be("gpt-5.6-terra");
-        result.ResolvedModel.Should().Be("gpt-5.6-terra");
+        result.RequestedModel.Should().Be("gpt-4.1");
+        result.ResolvedModel.Should().Be("gpt-4.1");
         result.ProviderRequestIdHash.Should().NotBeNullOrWhiteSpace().And.NotContain("req_secret_identifier");
         authorization.Should().Be(new AuthenticationHeaderValueSnapshot("Bearer", "test-api-key"));
 
         using var document = JsonDocument.Parse(requestJson!);
         var root = document.RootElement;
-        root.GetProperty("model").GetString().Should().Be("gpt-5.6-terra");
+        root.GetProperty("model").GetString().Should().Be("gpt-4.1");
         root.GetProperty("max_output_tokens").GetInt32().Should().Be(4096);
         var format = root.GetProperty("text").GetProperty("format");
         format.GetProperty("type").GetString().Should().Be("json_schema");

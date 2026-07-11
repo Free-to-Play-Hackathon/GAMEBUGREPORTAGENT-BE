@@ -1,0 +1,10 @@
+{
+  "manifestId": "demo-v1",
+  "protocolVersion": "1.0",
+  "datasetVersion": "1.0",
+  "groundTruthVersion": "1.0",
+  "cases": [
+    { "caseId": "GB-DUP-001", "split": "test", "type": "Duplicate" },
+    { "caseId": "GB-HN-001", "split": "test", "type": "HardNegative" }
+  ]
+}

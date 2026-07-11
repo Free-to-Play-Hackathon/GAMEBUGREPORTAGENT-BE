@@ -18,12 +18,16 @@ using GameBug.Application.ReproCases;
 using GameBug.Infrastructure.Security;
 using GameBug.Infrastructure.Time;
 using GameBug.Application.Duplicates;
+using GameBug.Application.Evaluation;
 using GameBug.Application.HistoricalTickets.ImportHistoricalTickets;
 using GameBug.Infrastructure.HistoricalTickets;
 using GameBug.Infrastructure.Filing;
+using GameBug.Infrastructure.Seeding;
 using GameBug.Application.Abstractions.Vision;
 using GameBug.Application.Vision;
 using GameBug.Infrastructure.Vision;
+using GameBug.Application.Abstractions.Evaluation;
+using GameBug.Infrastructure.Evaluation;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -55,8 +59,10 @@ public static class DependencyInjection
         services.AddScoped<IHistoricalTicketRepository, HistoricalTicketRepository>();
         services.AddScoped<IQaReviewRepository, QaReviewRepository>();
         services.AddScoped<ITrustReportRepository, TrustReportRepository>();
+        services.AddScoped<IEvaluationRunRepository, EvaluationRunRepository>();
         services.AddScoped<ITicketFilingGateway, InternalTicketFilingGateway>();
         services.AddScoped<IGameContextRepository, GameContextRepository>();
+        services.AddScoped<IWorkerHeartbeatStore, WorkerHeartbeatStore>();
         services.AddScoped<IAnalysisOutboxStore, AnalysisOutboxStore>();
         services.AddScoped<IBackgroundJobQueue, DurableBackgroundJobQueue>();
         services.AddScoped<DurableBackgroundJobQueue>();
@@ -68,6 +74,32 @@ public static class DependencyInjection
         services.AddSingleton<ILogEvidenceExtractor, GenericCrashLogParser>();
         services.AddScoped<IPromptLoader, PromptLoader>();
         services.AddScoped<IReproValidator, ReproValidator>();
+        services.AddScoped<IEvaluationManifestLoader, FileEvaluationManifestLoader>();
+        services.AddScoped<IEvaluationGroundTruthLoader, FileEvaluationGroundTruthLoader>();
+        services.AddScoped<IEvaluationCaseFixtureLoader, FileEvaluationCaseFixtureLoader>();
+        services.AddScoped<IEvaluationArtifactWriter, FileEvaluationArtifactWriter>();
+        services.AddScoped<DemoDataSeeder>();
+
+        services.AddOptions<EvaluationOptions>()
+            .Bind(configuration.GetSection(EvaluationOptions.SectionName))
+            .Validate(options => options.PerCaseTimeoutSeconds is > 0 and <= 600, "Evaluation:PerCaseTimeoutSeconds must be between 1 and 600.")
+            .Validate(options => options.WorkerHeartbeatIntervalSeconds is > 0 and <= 300, "Evaluation:WorkerHeartbeatIntervalSeconds must be between 1 and 300.")
+            .Validate(options => options.AllowlistedManifests.Length > 0, "Evaluation:AllowlistedManifests must not be empty.")
+            .ValidateOnStart();
+
+        services.Configure<EvaluationRuntimeOptions>(options =>
+        {
+            options.SchemaVersion = configuration["Evaluation:SchemaVersion"];
+            options.SanitizerVersion = configuration["Evaluation:SanitizerVersion"];
+            options.ParserVersion = configuration["Evaluation:ParserVersion"];
+            options.RoutingPolicyVersion = configuration["Ai:RoutingPolicyVersion"];
+            options.EmbeddingVersion = configuration["Embedding:Version"];
+            options.RankerVersion = configuration["DuplicateDetection:RankerVersion"];
+            options.TrustPolicyVersion = configuration["Evaluation:TrustPolicyVersion"];
+            options.SourceCommit = configuration["SourceCommit"];
+            options.BuildVersion = configuration["BuildVersion"];
+            options.PerCaseTimeoutSeconds = configuration.GetValue<int?>("Evaluation:PerCaseTimeoutSeconds") ?? 120;
+        });
 
         services.AddOptions<VisionOptions>()
             .Bind(configuration.GetSection(VisionOptions.SectionName))

@@ -8,6 +8,7 @@ using GameBug.Domain.ReproCases;
 using GameBug.Domain.GameContext;
 using GameBug.Domain.QaWorkflow;
 using GameBug.Domain.Trust;
+using GameBug.Domain.Evaluation;
 using GameBug.Infrastructure.HistoricalTickets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -55,6 +56,9 @@ public class GameBugDbContext : DbContext, IUnitOfWork
     public DbSet<InternalTicket> InternalTickets => Set<InternalTicket>();
     public DbSet<TicketFilingRequest> TicketFilingRequests => Set<TicketFilingRequest>();
     public DbSet<TrustReport> TrustReports => Set<TrustReport>();
+    public DbSet<EvaluationRun> EvaluationRuns => Set<EvaluationRun>();
+    public DbSet<EvaluationCaseResult> EvaluationCaseResults => Set<EvaluationCaseResult>();
+    public DbSet<WorkerHeartbeat> WorkerHeartbeats => Set<WorkerHeartbeat>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("vector");

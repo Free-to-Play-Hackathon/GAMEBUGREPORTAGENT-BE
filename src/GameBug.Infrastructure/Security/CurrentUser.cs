@@ -29,8 +29,13 @@ public class CurrentUser : ICurrentUser
                 return nameIdentifier;
             }
 
-            // Explicitly limited to Development; Production never silently authenticates.
-            return _environment.IsDevelopment() ? "DevUser" : null;
+            // Explicitly limited to non-production demo surfaces; Production never silently authenticates.
+            return _environment.IsDevelopment() ||
+                   _environment.IsEnvironment("Local") ||
+                   _environment.IsEnvironment("Demo") ||
+                   _environment.IsEnvironment("Test")
+                ? "DevUser"
+                : null;
         }
     }
 

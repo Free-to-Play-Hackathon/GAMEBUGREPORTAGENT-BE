@@ -1,0 +1,9 @@
+{
+  "caseId": "GB-DUP-001",
+  "description": "Game crashes after opening inventory with NullReferenceException in InventoryPanel.Refresh.",
+  "buildVersion": "1.2.3",
+  "platform": "Windows",
+  "device": "PC",
+  "locale": "en-US",
+  "sessionReference": "eval-GB-DUP-001"
+}

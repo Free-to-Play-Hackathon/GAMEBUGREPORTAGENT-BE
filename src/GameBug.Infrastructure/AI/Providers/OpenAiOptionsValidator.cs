@@ -1,9 +1,8 @@
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace GameBug.Infrastructure.AI.Providers;
 
-public sealed class OpenAiOptionsValidator(IHostEnvironment environment) : IValidateOptions<OpenAiOptions>
+public sealed class OpenAiOptionsValidator : IValidateOptions<OpenAiOptions>
 {
     public ValidateOptionsResult Validate(string? name, OpenAiOptions options)
     {
@@ -12,10 +11,15 @@ public sealed class OpenAiOptionsValidator(IHostEnvironment environment) : IVali
             return ValidateOptionsResult.Fail("Ai:OpenAI:ApiKey is required.");
         }
 
-        if (options.ApiKey.Equals("mock", StringComparison.OrdinalIgnoreCase) &&
-            !environment.IsDevelopment() && !environment.IsEnvironment("Testing"))
+        if (options.ApiKey.Equals("mock", StringComparison.OrdinalIgnoreCase))
         {
-            return ValidateOptionsResult.Fail("Ai:OpenAI:ApiKey=mock is allowed only in Development or Testing.");
+            return ValidateOptionsResult.Fail("Ai:OpenAI:ApiKey=mock is not allowed. Configure a real key with Ai__OpenAI__ApiKey.");
+        }
+
+        if (options.ApiKey.Contains("replace", StringComparison.OrdinalIgnoreCase) ||
+            options.ApiKey.Contains("your-openai-api-key", StringComparison.OrdinalIgnoreCase))
+        {
+            return ValidateOptionsResult.Fail("Ai:OpenAI:ApiKey must be a real OpenAI API key, not a placeholder.");
         }
 
         return ValidateOptionsResult.Success;

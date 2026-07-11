@@ -22,6 +22,9 @@ public static class DependencyInjection
         services.AddTransient<Evidence.EvidenceResolver>();
         services.AddTransient<Evidence.EventTimelineBuilder>();
         services.AddTransient<ReproCases.SeverityPolicy>();
+        services.AddSingleton<Evaluation.EvaluationIdentityBuilder>();
+        services.AddSingleton<Evaluation.DuplicateMetricCalculator>();
+        services.AddSingleton<Evaluation.LatencyMetricCalculator>();
 
         services.AddScoped<Abstractions.Trust.IProvenanceValidator, Trust.MvpProvenanceValidator>();
         services.AddScoped<Abstractions.Trust.IQualityGate, Trust.MvpQualityGate>();

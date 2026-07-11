@@ -1,0 +1,10 @@
+{
+  "groundTruthVersion": "1.0",
+  "entries": [
+    {
+      "caseId": "GB-DUP-001",
+      "expectedDuplicateKey": "BUG-201",
+      "expectedRank": 1
+    }
+  ]
+}

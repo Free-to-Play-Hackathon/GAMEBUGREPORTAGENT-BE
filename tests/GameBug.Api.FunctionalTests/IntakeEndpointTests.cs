@@ -5,6 +5,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -16,8 +17,19 @@ public sealed class IntakeEndpointTests : IClassFixture<WebApplicationFactory<Pr
 
     public IntakeEndpointTests(WebApplicationFactory<Program> factory)
     {
-        _client = factory.WithWebHostBuilder(builder => builder.ConfigureLogging(logging => logging.ClearProviders())).CreateClient(
-            new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        _client = factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Ai:OpenAI:ApiKey"] = "test-api-key",
+                    ["Ai:Routes:ReportUnderstanding:Model"] = "gpt-4.1",
+                    ["Ai:Routes:ReproSynthesis:Model"] = "gpt-4.1"
+                });
+            });
+            builder.ConfigureLogging(logging => logging.ClearProviders());
+        }).CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
     [Fact]

@@ -1,364 +1,600 @@
-# Phase 8 - Evaluation va Demo Release MVP
+# Phase 8 - Evaluation & Demo Release MVP
 
-## 1. Muc tieu va ket qua can co
+## 1. Mục tiêu
 
-Chot backend thanh ban demo co the reset, chay lai va xuat metric co identity:
+Chốt backend thành bản demo có thể reset, chạy lại và xuất metric có identity đầy đủ:
 
-```text
+```
 clean DB/storage
   -> migrate + seed + reindex
   -> start API + Worker
-  -> run golden QA flow
+  -> run golden QA flow (12 bước)
   -> run immutable evaluation manifest
-  -> export JSON artifact
+  -> export JSON artifact (manifest hash + component identity + numerator/denominator)
 ```
 
-Phase nay khong them product feature moi, tru khi feature do chan correctness, benchmark hoac demo.
+Phase này **không thêm product feature mới**. Chỉ thêm evaluation framework, seed/reset tooling và golden E2E script.
 
-## 2. Diem noi voi source hien tai
+---
 
-- `deploy/docker-compose.yml` da co PostgreSQL/pgvector va MinIO.
-- API da co `/health/live`; can them readiness co dependency check.
-- Historical ticket import/index da co endpoint, repository va durable index queue.
-- Analysis pipeline da luu component versions/checkpoints/warnings.
-- Duplicate matches da co rank, score, ranker version va snapshot hash.
-- `demo.ps1` hien chi demo Phase 1; phase nay se nang cap thanh full golden flow.
+## 2. Hiện trạng sau Phase 1–6
 
-Khong dua benchmark logic vao Domain product neu no khong phai invariant. Metric calculators deterministic dat o Application/Evaluation.
+| Thứ | Đã có | Ghi chú |
+|---|---|---|
+| Projects | Api, Application, Contracts, Domain, Infrastructure, Worker | Clean Architecture hoàn chỉnh |
+| Migrations | 10 migrations, mới nhất: `Phase6TrustGateMvp` | Cần thêm `Phase8EvaluationMvp` |
+| Repositories | BugReport, Idempotency, AnalysisRun, HistoricalTicket, QaReview, TrustReport, GameContext | 7 repos đã có |
+| Worker HostedServices | OutboxDispatcherService, ProcessAnalysisJobService, IndexHistoricalTicketJob | Cần thêm WorkerHeartbeatService |
+| Health | `/health/live` (process) + `/health/ready` (DB + MinIO) | Đã có sẵn trong Program.cs |
+| QA Workflow | OpenReview, MarkDuplicate, CreateTicket, ReviseRepro, AnswerClarification, RequestInformation, RejectAnalysis | Đầy đủ |
+| Trust | TrustReport, MvpProvenanceValidator, MvpQualityGate | Đã có |
+| docker-compose | PostgreSQL/pgvector + MinIO + createbuckets | Chỉ infra, chưa có api/worker container |
+| CI | `.github/workflows/phase1-ci.yml` | Build + test, chưa có CD |
 
-## 3. Chot evaluation protocol
+**Conventions cần tuân thủ:**
+- Domain entity: class + private constructor + static `Create()` trả `Result<T>`
+- CQRS: Command/Query record → Validator → Handler (MediatR)
+- Repository interface ở `Application/Abstractions/Persistence/`, implementation ở `Infrastructure/Persistence/Repositories/`
+- DI đăng ký ở `Infrastructure/DependencyInjection.cs`
 
-### 3.1 Dataset layout them moi
+---
 
-Tao thu muc root `evaluation/`:
+## 3. Evaluation Protocol
 
-```text
+### 3.1 Dataset layout
+
+Tạo thư mục `evaluation/` ở root:
+
+```
 evaluation/
   manifests/
-    demo-v1.json
+    demo-v1.json          <- allowlisted manifest
   cases/
     GB-DUP-001/
-      report.json
-      crash.log
+      report.json         <- bug report input (KHÔNG chứa expected answer)
+      crash.log           <- optional crash log
     GB-HN-001/
-      report.json
-      crash.log
+      report.json         <- hard-negative case
   ground-truth/
-    demo-v1.json
+    demo-v1.json          <- chỉ evaluator đọc SAU khi case đã chạy
   artifacts/
     .gitkeep
 ```
 
-- Manifest chua case IDs, split, dataset version, ground-truth version va protocol version.
-- Case file khong chua expected answer de runner/prompt vo tinh doc duoc.
-- Ground truth tach rieng, chi evaluator doc sau khi case da chay.
-- Artifact generated khong commit, tru mot precomputed golden artifact duoc label ro neu can backup demo.
+**`evaluation/manifests/demo-v1.json`** — cấu trúc mẫu:
+```json
+{
+  "manifestId": "demo-v1",
+  "protocolVersion": "1.0",
+  "datasetVersion": "1.0",
+  "groundTruthVersion": "1.0",
+  "cases": [
+    { "caseId": "GB-DUP-001", "split": "test", "type": "Duplicate" },
+    { "caseId": "GB-HN-001",  "split": "test", "type": "HardNegative" }
+  ]
+}
+```
+
+**`evaluation/ground-truth/demo-v1.json`** — cấu trúc mẫu:
+```json
+{
+  "groundTruthVersion": "1.0",
+  "entries": [
+    {
+      "caseId": "GB-DUP-001",
+      "expectedDuplicateKey": "BUG-201",
+      "expectedRank": 1
+    }
+  ]
+}
+```
 
 ### 3.2 Manifest identity
 
-Canonicalize JSON theo stable property/case ordering, sau do SHA-256. Persist:
+Mỗi `EvaluationRun` phải lưu:
+- `manifestHash` (SHA-256 canonical JSON của manifest)
+- `datasetVersion`, `groundTruthVersion`, `protocolVersion`
+- `configurationHash` (hash của appsettings evaluation-relevant fields)
+- `schemaVersion`, `sanitizerVersion`, `parserVersion`, `routingPolicyVersion`, `embeddingVersion`, `rankerVersion`, `trustPolicyVersion`
+- `sourceCommit` hoặc `buildVersion` nếu có
 
-- `manifestHash`, dataset/ground-truth/protocol versions.
-- Source commit hoac build version neu lay duoc.
-- Configuration hash.
-- Schema, sanitizer, parser, prompt, model, embedding, ranker, trust, vision va catalog versions.
+Thiếu `manifestHash` → run có status `CompletedWithErrors` nhưng `validity = InvalidForClaim`.
 
-Thieu manifest hash/component identity -> run `InvalidForClaim`; metric van co the xem de debug nhung khong dung lam measured claim.
-
-### 3.3 MVP metrics
+### 3.3 Metrics cần tính
 
 | Metric | Numerator | Denominator |
 |---|---|---|
-| Duplicate Recall@1 | duplicate cases co expected ticket o rank 1 | duplicate cases co ground truth |
-| Duplicate Recall@3 | duplicate cases co expected ticket trong top 3 | duplicate cases co ground truth |
-| MRR | tong reciprocal rank | duplicate cases co ground truth |
-| Hard-negative FP rate | hard-negative bi classify LikelyDuplicate | hard-negative cases |
-| Grounded required-field rate | required fields co valid direct source | labeled required fields |
-| Unsupported confirmed-step rate | confirmed steps khong co valid source | all confirmed steps |
-| End-to-end latency | completed - submitted | successful cases |
+| `DuplicateRecallAt1` | cases có expected ticket ở rank 1 | duplicate cases có ground truth |
+| `DuplicateRecallAt3` | cases có expected ticket trong top 3 | duplicate cases có ground truth |
+| `MeanReciprocalRank` | tổng reciprocal rank | duplicate cases có ground truth |
+| `HardNegativeFpRate` | hard-negative bị classify `LikelyDuplicate` | hard-negative cases |
+| `GroundedRequiredFieldRate` | required fields có valid direct source | labeled required fields |
+| `EndToEndLatencyMs` | completed - submitted (ms) | successful cases |
 
-Moi metric artifact bat buoc co numerator, denominator, value va validity. Denominator 0 -> `value=null`, khong tra 0 gia.
+**Rule**: Denominator = 0 → `value = null`, không trả về 0 giả.
 
-## 4. Work package 8.1 - Evaluation contracts/domain records
+---
 
-### Them moi
+## 4. Work Package 8.1 — Evaluation Domain
 
-Trong `src/GameBug.Domain/Evaluation/`:
+### Tạo mới trong `src/GameBug.Domain/Evaluation/`
 
-- `EvaluationRun.cs`: identity, status, timestamps, validity, aggregate metric JSON/reference.
-- `EvaluationRunStatus.cs`: `Queued`, `Running`, `Completed`, `CompletedWithErrors`, `Failed`.
-- `EvaluationValidity.cs`: `ValidForClaim`, `InvalidForClaim`, reason codes.
-- `EvaluationCaseResult.cs`: run/case, analysis id, outcome, expected/actual ranks, timing, error code.
-- `MetricResult.cs`: name, numerator, denominator, nullable value, unit/validity.
+#### `EvaluationRunStatus.cs`
+```csharp
+namespace GameBug.Domain.Evaluation;
 
-Domain invariant toi thieu:
-
-- Run khong complete neu manifest hash rong.
-- Case ID unique trong mot run.
-- Numerator/denominator khong am; numerator khong vuot denominator voi ratio metric.
-- Run co case fail co the `CompletedWithErrors`, khong mat ket qua case thanh cong.
-
-Them `tests/GameBug.Domain.UnitTests/EvaluationDomainTests.cs`.
-
-### Them contracts
-
-Trong `src/GameBug.Contracts/Evaluations/`:
-
-- `StartEvaluationRequest.cs`: chi nhan allowlisted `manifestId` va `profile`.
-- `EvaluationRunResponse.cs`.
-- `EvaluationCaseResponse.cs`.
-- `MetricResponse.cs`.
-
-Khong nhan arbitrary file path/URL trong public request.
-
-## 5. Work package 8.2 - Manifest loader va metric calculators
-
-### Them abstraction
-
-Trong `src/GameBug.Application/Abstractions/Evaluation/`:
-
-- `IEvaluationManifestLoader.cs`.
-- `IEvaluationRunRepository.cs` co the dat trong `Abstractions/Persistence` neu theo convention repository hien tai.
-- `IEvaluationArtifactWriter.cs`.
-
-### Them implementation Application
-
-Trong `src/GameBug.Application/Evaluation/`:
-
-- `EvaluationManifest.cs` va case/ground-truth records.
-- `EvaluationManifestValidator.cs`.
-- `EvaluationIdentityBuilder.cs`.
-- `DuplicateMetricCalculator.cs`.
-- `GroundingMetricCalculator.cs`.
-- `LatencyMetricCalculator.cs`.
-
-Rules:
-
-- Calculator nhan immutable result records, khong query DB truc tiep.
-- Recall/MRR dung historical ticket stable key (`BUG-201`), khong dung DB Guid lam ground truth.
-- Grounding dung trust report cua Phase 6; source sai run/type khong duoc tinh grounded.
-- Unsupported-step metric chi `ValidForClaim` neu protocol/label source duoc khai bao.
-- Unit test calculator bang fixture nho, khong goi AI/database.
-
-Them tests:
-
-- `tests/GameBug.Application.UnitTests/EvaluationManifestTests.cs`.
-- `tests/GameBug.Application.UnitTests/DuplicateMetricCalculatorTests.cs`.
-- `tests/GameBug.Application.UnitTests/GroundingMetricCalculatorTests.cs`.
-
-## 6. Work package 8.3 - Evaluation runner
-
-### Them slices
-
-Trong `src/GameBug.Application/Evaluation/RunEvaluation/`:
-
-- `RunEvaluationCommand.cs`, validator va handler.
-- Handler load allowlisted manifest, tao `EvaluationRun`, sau do xu ly case theo thu tu stable.
-- Voi moi case: submit/import fixture, start analysis bang existing application use case, doi durable pipeline complete bang internal orchestration/poll co timeout, doc duplicate/trust result, tao `EvaluationCaseResult`.
-- Mot case fail khong lam mat cac case khac; ghi stable error va tiep tuc neu policy cho phep.
-
-Trong `src/GameBug.Application/Evaluation/GetEvaluation/`:
-
-- Query status + aggregate + per-case summary.
-
-Trong `src/GameBug.Application/Evaluation/ExportEvaluation/`:
-
-- Xuat canonical JSON artifact co identity, metrics va per-case summary.
-- Khong xuat raw report/log/evidence excerpts.
-
-### Chon execution cho MVP
-
-Uu tien evaluator chay nhu internal tool/command theo tung case de it rework. Neu evaluation lon moi dua vao queue rieng. Khong tai su dung analysis outbox identity lam evaluation job identity.
-
-### Tests
-
-Them `tests/GameBug.Application.UnitTests/RunEvaluationHandlerTests.cs`:
-
-- Manifest khong allowlist/hash mismatch -> fail.
-- Case order stable.
-- Mot case fail -> run `CompletedWithErrors`, case khac van co metric.
-- Retry/export khong tao duplicate run artifact.
-- Missing component version -> `InvalidForClaim`.
-
-## 7. Work package 8.4 - Evaluation persistence
-
-### Them EF/repository
-
-Trong `src/GameBug.Infrastructure/Persistence/`:
-
-- `Repositories/EvaluationRunRepository.cs`.
-- `Configurations/EvaluationRunConfiguration.cs`.
-- `Configurations/EvaluationCaseResultConfiguration.cs`.
-
-Sua:
-
-- `GameBugDbContext.cs`: them DbSets.
-- `Infrastructure/DependencyInjection.cs`: register repository/loader/artifact writer.
-
-Constraint/index:
-
-- Unique `(manifest_hash, configuration_hash, run_sequence/id)` theo identity da chot.
-- Unique `(evaluation_run_id, case_id)`.
-- Index status/created time.
-- Metric/identity JSONB duoc phep cho MVP, nhung cot filter chinh phai typed.
-
-Tao migration goi y `Phase8EvaluationMvp`. Them integration tests cho round-trip identity, case uniqueness va nullable metric value.
-
-### Manifest/artifact Infrastructure
-
-Trong `src/GameBug.Infrastructure/Evaluation/`:
-
-- `FileEvaluationManifestLoader.cs`: resolve chi manifest ID allowlisted duoi root config; chan path traversal.
-- `FileEvaluationArtifactWriter.cs`: ghi artifact vao configured local/demo directory bang temp file + atomic rename.
-- `EvaluationOptions.cs`: manifest root, artifact root, allowlisted manifests, per-case timeout.
-
-API va Worker appsettings dung cung manifest root/profile/version.
-
-## 8. Work package 8.5 - API hoac internal tool
-
-### API toi thieu
-
-Them `src/GameBug.Api/Endpoints/Evaluations/EvaluationEndpoints.cs`:
-
-| Method | Route | Muc dich |
-|---|---|---|
-| POST | `/api/v1/evaluations` | Start allowlisted manifest/profile |
-| GET | `/api/v1/evaluations/{id}` | Status, identity, metrics, case summary |
-| GET | `/api/v1/evaluations/{id}/artifact` | Optional download sanitized artifact |
-
-Sua `src/GameBug.Api/Program.cs` de map endpoint. POST bat buoc idempotency key va chi enable trong Local/Demo/Test hoac policy admin da co.
-
-Neu khong kip API, tao console project `src/GameBug.Tools/GameBug.Tools.csproj` va commands `evaluate`, `seed`, `reset`, `reindex`. Tool phai reuse Application/Infrastructure DI, khong copy business logic. Trong hai lua chon, chi can lam mot execution surface de dong MVP.
-
-Them `tests/GameBug.Api.FunctionalTests/EvaluationEndpointTests.cs` neu chon API: allowlist, idempotency, environment guard, OpenAPI va invalid run ID.
-
-## 9. Work package 8.6 - Seed, reset va reindex
-
-### Them tool/script
-
-Uu tien `GameBug.Tools` nhu tren, hoac command host tuong duong. Can cac command:
-
-```text
-gamebug-tools migrate
-gamebug-tools seed --dataset demo-v1
-gamebug-tools reindex --dataset demo-v1
-gamebug-tools reset --environment Demo --confirm GAMEBUG_DEMO_RESET
-gamebug-tools evaluate --manifest demo-v1
+public enum EvaluationRunStatus
+{
+    Queued,
+    Running,
+    Completed,
+    CompletedWithErrors,
+    Failed
+}
 ```
 
-### Noi can sua/them
+#### `EvaluationValidity.cs`
+```csharp
+namespace GameBug.Domain.Evaluation;
 
-- Them `src/GameBug.Infrastructure/Seeding/DemoDataSeeder.cs`.
-- Tai su dung `IHistoricalTicketRepository`/index queue va game-context repositories; khong insert vector/search document bang SQL hard-code.
-- Them seed source duoi `evaluation/` hoac `seed/` voi stable IDs/keys.
-- Sua `GameBugReproAgent.slnx` neu them `GameBug.Tools` project.
-- Sua `Directory.Packages.props` chi khi tool can package moi.
+public enum EvaluationValidity
+{
+    ValidForClaim,
+    InvalidForClaim
+}
 
-### Guard bat buoc
+public enum InvalidReasonCode
+{
+    MissingManifestHash,
+    MissingComponentVersion,
+    ManifestHashMismatch,
+    ConfigurationHashMismatch
+}
+```
 
-- Reset chi chay khi environment la `Local`, `Demo` hoac `Test`.
-- Can explicit confirmation token.
-- Tu choi connection string/DB name khong match allowlist demo/test.
-- Seed idempotent; re-run khong tao duplicate historical ticket/catalog/case.
-- Reindex repeatable va cho index snapshot/version ro rang.
+#### `MetricResult.cs`
+```csharp
+namespace GameBug.Domain.Evaluation;
 
-Them integration tests `DemoDataSeederTests.cs` cho seed hai lan va reset guard.
+public record MetricResult(
+    string Name,
+    int Numerator,
+    int Denominator,
+    double? Value,       // null khi Denominator = 0
+    string Unit,
+    EvaluationValidity Validity)
+{
+    // Invariant: Numerator >= 0, Denominator >= 0, Numerator <= Denominator (ratio metrics)
+}
+```
 
-## 10. Work package 8.7 - Health va local demo deployment
+#### `EvaluationCaseResult.cs`
+```csharp
+namespace GameBug.Domain.Evaluation;
 
-### API health
+public class EvaluationCaseResult
+{
+    public Guid Id { get; private set; }
+    public Guid EvaluationRunId { get; private set; }
+    public string CaseId { get; private set; } = null!;
+    public Guid? AnalysisRunId { get; private set; }
+    public EvaluationCaseOutcome Outcome { get; private set; }
+    public string? ExpectedDuplicateKey { get; private set; }
+    public string? ActualTopKey { get; private set; }
+    public int? ActualRank { get; private set; }
+    public long? LatencyMs { get; private set; }
+    public string? ErrorCode { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+}
 
-Sua `src/GameBug.Api/Program.cs` va DI:
+public enum EvaluationCaseOutcome
+{
+    Success,
+    Failed,
+    Skipped
+}
+```
 
-- Giu `/health/live` chi check process.
-- Them `/health/ready` check PostgreSQL va object storage configuration/connectivity; khong goi AI provider.
-- Response khong lo connection string/secret.
+#### `EvaluationRun.cs`
+```csharp
+namespace GameBug.Domain.Evaluation;
 
-### Worker health
+public class EvaluationRun
+{
+    private readonly List<EvaluationCaseResult> _caseResults = new();
+    private readonly List<MetricResult> _metrics = new();
 
-MVP khong can mo public HTTP neu Worker hien la generic host. Them mot trong hai cach, chot mot:
+    private EvaluationRun() { }
 
-- Preferred: `WorkerHeartbeatService` update heartbeat row/lease; API readiness/demo tool check heartbeat freshness.
-- Hoac them local health endpoint neu Worker host da co web stack.
+    public Guid Id { get; private set; }
+    public string ManifestId { get; private set; } = null!;
+    public string ManifestHash { get; private set; } = null!;
+    public string ConfigurationHash { get; private set; } = null!;
+    public string ProtocolVersion { get; private set; } = null!;
+    public string DatasetVersion { get; private set; } = null!;
+    public string GroundTruthVersion { get; private set; } = null!;
+    // Component versions (từ AnalysisRun conventions)
+    public string? SchemaVersion { get; private set; }
+    public string? SanitizerVersion { get; private set; }
+    public string? EmbeddingVersion { get; private set; }
+    public string? RankerVersion { get; private set; }
+    public string? TrustPolicyVersion { get; private set; }
+    public EvaluationRunStatus Status { get; private set; }
+    public EvaluationValidity Validity { get; private set; }
+    public string? InvalidReason { get; private set; }
+    public DateTimeOffset CreatedAt { get; private set; }
+    public DateTimeOffset? CompletedAt { get; private set; }
 
-Them `src/GameBug.Worker/HostedServices/WorkerHeartbeatService.cs` va persistence entity/config neu chon heartbeat. Stale threshold phai lon hon polling/heartbeat interval.
+    public IReadOnlyCollection<EvaluationCaseResult> CaseResults => _caseResults.AsReadOnly();
+    public IReadOnlyCollection<MetricResult> Metrics => _metrics.AsReadOnly();
 
-### Compose va startup docs
+    // Domain invariant: Run không complete nếu ManifestHash rỗng
+    public bool CanComplete => !string.IsNullOrWhiteSpace(ManifestHash);
 
-- Sua `deploy/docker-compose.yml`: giu infra profile; them API/Worker chi neu da co Dockerfile MVP on dinh.
-- Neu chua containerize app, document command sequence trong `README.md` va de production container hardening sang Phase 12.
-- Them `deploy/.env.example` keys cho environment, manifest/artifact roots; khong commit provider secret.
+    public static Result<EvaluationRun> Create(
+        string manifestId,
+        string manifestHash,
+        string configurationHash,
+        string protocolVersion,
+        string datasetVersion,
+        string groundTruthVersion,
+        DateTimeOffset createdAt)
+    {
+        if (string.IsNullOrWhiteSpace(manifestHash))
+            return Result.Failure<EvaluationRun>(new DomainError("EvaluationRun.ManifestHashRequired", "Manifest hash is required."));
 
-## 11. Work package 8.8 - Golden E2E va demo script
+        return new EvaluationRun
+        {
+            Id = Guid.NewGuid(),
+            ManifestId = manifestId,
+            ManifestHash = manifestHash,
+            ConfigurationHash = configurationHash,
+            ProtocolVersion = protocolVersion,
+            DatasetVersion = datasetVersion,
+            GroundTruthVersion = groundTruthVersion,
+            Status = EvaluationRunStatus.Queued,
+            Validity = EvaluationValidity.ValidForClaim,
+            CreatedAt = createdAt
+        };
+    }
+}
+```
 
-### Sua/them script
+### Tests: `tests/GameBug.Domain.UnitTests/EvaluationDomainTests.cs`
+- Run không complete khi ManifestHash rỗng
+- Case ID unique trong một run
+- MetricResult có denominator 0 → value null
+- Run với case fail → CompletedWithErrors, case khác vẫn có metric
 
-- Nang cap `demo.ps1` tu Phase 1 thanh full flow; hoac giu file cu va them `scripts/demo-e2e.ps1` ro rang hon.
-- Them `scripts/evaluate.ps1` neu CLI command can orchestration.
-- Script dung `try/finally` de cleanup temp artifacts; khong xoa DB/storage ngoai guarded reset.
+---
 
-Golden E2E:
+## 5. Work Package 8.2 — Contracts
 
-1. Check SDK/config/infra.
-2. Apply migrations tu empty DB.
-3. Reset guarded va seed `demo-v1`.
-4. Reindex historical tickets; doi job complete.
-5. Start/check API va Worker.
-6. Submit golden report + log.
-7. Poll analysis den `AwaitingQaReview` voi timeout.
-8. Assert top candidate stable key `BUG-201` trong top 3.
-9. Open QA review va MarkDuplicate.
-10. Assert report closed va zero internal ticket.
-11. Run evaluation manifest.
-12. Export artifact va print path/run ID/metrics.
+### Tạo mới trong `src/GameBug.Contracts/Evaluations/`
 
-Script exit code khac 0 neu bat ky assertion nao fail. Khong chi print mau xanh roi tiep tuc.
+- `StartEvaluationRequest.cs`: `{ string ManifestId, string Profile }`
+- `EvaluationRunResponse.cs`: run summary + validity + metrics
+- `EvaluationCaseResponse.cs`: per-case outcome + rank + latency
+- `MetricResponse.cs`: name, numerator, denominator, nullable value, unit, validity
 
-### Precomputed provider-offline fallback
+---
 
-Neu live AI khong on dinh, them `evaluation/artifacts/precomputed-demo-v1.json` voi:
+## 6. Work Package 8.3 — Abstractions & Manifest
 
-- `artifactMode: Precomputed`.
-- Original run identity/time/component versions.
-- Hash cua artifact.
-- Banner/console text ro la fallback, khong ghi nhan live measured run.
+### Tạo mới trong `src/GameBug.Application/Abstractions/Evaluation/`
 
-Khong nap precomputed output vao DB nhu the provider vua chay.
+```csharp
+// IEvaluationManifestLoader.cs
+public interface IEvaluationManifestLoader
+{
+    Task<EvaluationManifest?> LoadAsync(string manifestId, CancellationToken ct);
+}
 
-## 12. Work package 8.9 - Verification va release evidence
+// IEvaluationRunRepository.cs  
+public interface IEvaluationRunRepository
+{
+    Task<EvaluationRun?> GetByIdAsync(Guid id, CancellationToken ct);
+    Task AddAsync(EvaluationRun run, CancellationToken ct);
+    Task UpdateAsync(EvaluationRun run, CancellationToken ct);
+}
 
-### Automated tests
+// IEvaluationArtifactWriter.cs
+public interface IEvaluationArtifactWriter
+{
+    Task<string> WriteAsync(EvaluationArtifact artifact, CancellationToken ct);
+}
+```
 
-- Empty DB -> migration -> seed -> golden case thanh cong.
-- Recall@3/MRR dung tren fixture co expected ticket.
-- Grounding metric bo source sai run/type.
-- Denominator 0 -> null/invalid, khong phai zero.
-- Restart Worker giua analysis khong tao duplicate repro/decision/ticket.
-- Vision disabled/provider unavailable khong fail core evaluation.
-- Reset production-like DB bi tu choi.
+### Tạo mới trong `src/GameBug.Application/Evaluation/`
 
-### Artifact can giu sau run
+#### `EvaluationManifest.cs`
+Record chứa: `ManifestId`, `ProtocolVersion`, `DatasetVersion`, `GroundTruthVersion`, `Cases[]`.
 
-- Evaluation JSON.
-- Manifest hash va source manifest ID.
-- Migration/version output.
-- Golden E2E summary voi analysis/review IDs.
-- Logs da sanitize du de chan doan; khong gom raw report/log/secret.
+#### `EvaluationIdentityBuilder.cs`
+Compute SHA-256 canonical JSON của manifest và configuration hash.
 
-## 13. Thu tu implementation de ra demo som
+#### `DuplicateMetricCalculator.cs`
+```
+- Nhận IReadOnlyCollection<EvaluationCaseResult> + ground truth entries
+- Trả List<MetricResult>: RecallAt1, RecallAt3, MRR, HardNegativeFpRate
+- Dùng ExternalId (BUG-201) làm stable key, KHÔNG dùng DB Guid
+- Unit test với fixture nhỏ, không gọi DB/AI
+```
 
-1. Dataset/manifest + pure metric calculators.
-2. Evaluation entities/persistence/runner.
-3. Seed/reset/reindex tool va guards.
-4. API/internal execution surface.
-5. Health/readiness.
-6. Golden E2E script.
-7. Clean-environment rehearsal va provider-offline artifact.
+#### `LatencyMetricCalculator.cs`
+```
+- Tính EndToEndLatencyMs = CompletedAt - SubmittedAt
+- Chỉ tính successful cases
+```
 
-## 14. Cat sang phase sau
+---
 
-Chuyen sang [Phase 12 - Production Release Hardening](phase-12-production-release-hardening.md): hardened non-root/read-only images, backup/restore rehearsal day du, production observability/alerts, load/capacity/resilience matrix va CI release gates.
+## 7. Work Package 8.4 — Evaluation Runner (CQRS)
 
-## 15. Exit gate
+### `src/GameBug.Application/Evaluation/RunEvaluation/`
 
-Phase 8 dong khi mot may/moi truong sach co the migrate, seed, reindex, chay golden flow den QA decision va xuat evaluation artifact co manifest hash, component identity, numerator/denominator. Day la moc demo-ready/release-candidate cua MVP.
+#### `RunEvaluationCommand.cs`
+```csharp
+public record RunEvaluationCommand(
+    string ManifestId,
+    string Profile,
+    string IdempotencyKey) : ICommand<Guid>;
+```
+
+#### `RunEvaluationCommandHandler.cs`
+Logic:
+1. Load manifest qua `IEvaluationManifestLoader` — chỉ accept allowlisted `manifestId`
+2. Tạo `EvaluationRun` domain entity, tính manifest hash
+3. Với mỗi case (theo stable order):
+   - Submit/import fixture report → gọi existing `SubmitBugReport` use case
+   - Trigger analysis → gọi existing `StartAnalysis` use case
+   - Poll `IAnalysisRunRepository` đến `AwaitingQaReview` hoặc terminal, có timeout
+   - Đọc kết quả duplicate từ `IAnalysisRunRepository`
+   - Tạo `EvaluationCaseResult`
+4. Một case fail → ghi error, tiếp tục case khác
+5. Tính metrics qua Calculators
+6. Persist qua `IEvaluationRunRepository`
+
+### `src/GameBug.Application/Evaluation/GetEvaluation/`
+
+`GetEvaluationQuery(Guid RunId)` → `EvaluationRunResponse` (status + validity + metrics + per-case summary)
+
+### `src/GameBug.Application/Evaluation/ExportEvaluation/`
+
+`ExportEvaluationQuery(Guid RunId)` → ghi JSON artifact qua `IEvaluationArtifactWriter`, trả về artifact path.
+
+Artifact JSON schema:
+```json
+{
+  "runId": "...",
+  "manifestId": "demo-v1",
+  "manifestHash": "sha256:...",
+  "configurationHash": "...",
+  "validity": "ValidForClaim",
+  "componentVersions": { ... },
+  "metrics": [ { "name": "DuplicateRecallAt1", "numerator": 1, "denominator": 1, "value": 1.0 } ],
+  "cases": [ { "caseId": "GB-DUP-001", "outcome": "Success", "actualRank": 1 } ]
+}
+```
+
+### Tests: `tests/GameBug.Application.UnitTests/RunEvaluationHandlerTests.cs`
+- Manifest không allowlisted → fail ngay, không tạo run
+- Case order stable (sorted by caseId)
+- Một case fail → run `CompletedWithErrors`, case khác vẫn có metric
+- Missing component version → `Validity = InvalidForClaim`
+
+---
+
+## 8. Work Package 8.5 — Persistence
+
+### Tạo mới trong `src/GameBug.Infrastructure/Persistence/`
+
+#### `Repositories/EvaluationRunRepository.cs`
+Implement `IEvaluationRunRepository` dùng `GameBugDbContext`.
+
+#### `Configurations/EvaluationRunConfiguration.cs`
+```
+- Table: evaluation_runs
+- Unique index: (manifest_hash, configuration_hash)
+- Metrics/validity lưu dạng JSONB (OK cho MVP)
+- Index: (status, created_at)
+```
+
+#### `Configurations/EvaluationCaseResultConfiguration.cs`
+```
+- Table: evaluation_case_results
+- Unique index: (evaluation_run_id, case_id)
+- FK → evaluation_runs
+```
+
+### Sửa `GameBugDbContext.cs`
+```csharp
+public DbSet<EvaluationRun> EvaluationRuns => Set<EvaluationRun>();
+public DbSet<EvaluationCaseResult> EvaluationCaseResults => Set<EvaluationCaseResult>();
+```
+
+### Migration: `Phase8EvaluationMvp`
+```bash
+dotnet ef migrations add Phase8EvaluationMvp \
+  --project src/GameBug.Infrastructure \
+  --startup-project src/GameBug.Api
+```
+
+### Tạo mới trong `src/GameBug.Infrastructure/Evaluation/`
+
+#### `FileEvaluationManifestLoader.cs`
+- Resolve manifest path từ `EvaluationOptions.ManifestRoot` + `manifestId`
+- Chỉ load manifest ID có trong allowlist (chặn path traversal)
+- Parse JSON → `EvaluationManifest`
+
+#### `FileEvaluationArtifactWriter.cs`
+- Ghi artifact JSON vào `EvaluationOptions.ArtifactRoot`
+- Dùng temp file + atomic rename
+
+#### `EvaluationOptions.cs`
+```csharp
+public class EvaluationOptions
+{
+    public const string SectionName = "Evaluation";
+    public string ManifestRoot { get; set; } = "evaluation/manifests";
+    public string ArtifactRoot { get; set; } = "evaluation/artifacts";
+    public string[] AllowlistedManifests { get; set; } = ["demo-v1"];
+    public int PerCaseTimeoutSeconds { get; set; } = 120;
+}
+```
+
+### Sửa `DependencyInjection.cs`
+```csharp
+services.AddScoped<IEvaluationRunRepository, EvaluationRunRepository>();
+services.AddScoped<IEvaluationManifestLoader, FileEvaluationManifestLoader>();
+services.AddScoped<IEvaluationArtifactWriter, FileEvaluationArtifactWriter>();
+services.AddOptions<EvaluationOptions>()
+    .Bind(configuration.GetSection(EvaluationOptions.SectionName))
+    .ValidateOnStart();
+```
+
+---
+
+## 9. Work Package 8.6 — API Endpoints
+
+### `src/GameBug.Api/Endpoints/Evaluations/EvaluationEndpoints.cs`
+
+| Method | Route | Mục đích |
+|---|---|---|
+| `POST` | `/api/v1/evaluations` | Start evaluation với allowlisted manifestId |
+| `GET` | `/api/v1/evaluations/{id}` | Status + identity + metrics + case summary |
+| `GET` | `/api/v1/evaluations/{id}/artifact` | Download sanitized JSON artifact |
+
+POST yêu cầu `Idempotency-Key` header. Chỉ enable ở `Local`, `Demo`, `Test` environment:
+```csharp
+.AddEndpointFilter(async (ctx, next) => {
+    var env = ctx.HttpContext.RequestServices.GetRequiredService<IHostEnvironment>();
+    if (!env.IsEnvironment("Local") && !env.IsEnvironment("Demo") && !env.IsEnvironment("Test"))
+        return Results.Forbid();
+    return await next(ctx);
+});
+```
+
+### Sửa `Program.cs`
+```csharp
+app.MapEvaluationEndpoints();
+```
+
+---
+
+## 10. Work Package 8.7 — Worker Heartbeat
+
+### `src/GameBug.Worker/HostedServices/WorkerHeartbeatService.cs`
+
+BackgroundService update một heartbeat row trong DB mỗi 30 giây:
+
+```csharp
+// Entity đơn giản: WorkerHeartbeat { WorkerName, LastHeartbeatAt }
+// API /health/ready check: LastHeartbeatAt > UtcNow - 2 * heartbeatInterval
+```
+
+Thêm `WorkerHeartbeat` entity + configuration + migration hoặc dùng JSONB trong existing config table.
+
+Đăng ký trong `Worker/Program.cs`:
+```csharp
+builder.Services.AddHostedService<WorkerHeartbeatService>();
+```
+
+---
+
+## 11. Work Package 8.8 — Seed, Reset & Reindex
+
+### `src/GameBug.Infrastructure/Seeding/DemoDataSeeder.cs`
+
+```csharp
+public class DemoDataSeeder
+{
+    // Seed historical tickets từ evaluation/cases/ với stable ExternalIds (BUG-201, BUG-202...)
+    // Dùng IHistoricalTicketRepository — không insert bằng SQL hard-code
+    // Idempotent: kiểm tra ExternalId trước khi insert
+    public Task SeedAsync(string datasetVersion, CancellationToken ct);
+}
+```
+
+### `scripts/seed-demo.ps1`
+```powershell
+# Seed historical tickets
+dotnet run --project src/GameBug.Api -- seed --dataset demo-v1
+
+# Hoặc gọi endpoint:
+Invoke-RestMethod -Method POST -Uri "http://localhost:5000/api/v1/historical-tickets/import" -Body $body
+```
+
+### Guards bắt buộc
+
+- Reset chỉ chạy khi `ASPNETCORE_ENVIRONMENT` là `Local`, `Demo` hoặc `Test`
+- Yêu cầu explicit token: `--confirm GAMEBUG_DEMO_RESET`
+- Từ chối connection string không match allowlist
+- Seed idempotent: re-run không tạo duplicate
+
+---
+
+## 12. Work Package 8.9 — Golden E2E Script
+
+### `scripts/demo-e2e.ps1`
+
+12 bước theo thứ tự, exit code ≠ 0 nếu bất kỳ assertion nào fail:
+
+```powershell
+# Bước 1: Check SDK, config, infra (postgres/minio healthy)
+# Bước 2: Apply migrations từ empty DB
+# Bước 3: Reset guarded + seed demo-v1
+# Bước 4: Reindex historical tickets, đợi IndexHistoricalTicketJob complete
+# Bước 5: Start API + Worker (hoặc check đang chạy)
+# Bước 6: Submit golden report + crash.log
+# Bước 7: Poll GET /api/v1/analyses/{id} đến AwaitingQaReview (timeout 120s)
+# Bước 8: Assert top candidate ExternalId = BUG-201 trong top 3
+# Bước 9: POST /api/v1/qa-reviews/{id}/decisions (MarkDuplicate)
+# Bước 10: Assert BugReport status = Closed, zero InternalTicket
+# Bước 11: POST /api/v1/evaluations (manifest = demo-v1)
+# Bước 12: Poll đến Completed, export artifact, print runId + metrics
+
+if ($LASTEXITCODE -ne 0) { exit 1 }
+```
+
+### Precomputed fallback (nếu AI không ổn định)
+
+`evaluation/artifacts/precomputed-demo-v1.json`:
+```json
+{
+  "artifactMode": "Precomputed",
+  "warning": "This is a precomputed fallback, not a live measured run.",
+  "originalRunId": "...",
+  "manifestHash": "sha256:...",
+  "metrics": [ ... ]
+}
+```
+
+---
+
+## 13. Thứ tự implement để ra demo sớm
+
+```
+1. WP 8.1: Domain entities + unit tests (không dependency)
+2. WP 8.2: Contracts
+3. WP 8.3: Abstractions + Metric calculators + unit tests
+4. WP 8.5: Persistence (EF config + migration Phase8EvaluationMvp)
+5. WP 8.4: CQRS handlers (RunEvaluation, GetEvaluation, ExportEvaluation)
+6. WP 8.6: API endpoints + environment guard
+7. WP 8.8: Seed/reset script + evaluation/ dataset files
+8. WP 8.7: Worker heartbeat
+9. WP 8.9: demo-e2e.ps1 golden flow
+10. Rehearsal: chạy demo-e2e.ps1 từ clean DB
+```
+
+---
+
+## 14. Exit Gate
+
+Phase 8 đóng khi:
+- `dotnet build` và `dotnet test` đều green
+- `demo-e2e.ps1` chạy từ clean DB, exit code = 0
+- Evaluation artifact xuất ra có: `manifestHash`, `configurationHash`, component versions, numerator/denominator đầy đủ cho mọi metric
+- `/health/ready` trả `Ready` (DB + MinIO + Worker heartbeat fresh)
+
+Sau đó chuyển sang **Phase 12 - Production Hardening** (Dockerfile, CI/CD, AWS deploy).

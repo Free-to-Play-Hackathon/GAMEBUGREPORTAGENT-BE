@@ -274,6 +274,7 @@ public sealed class VisionStageTests
             new PromptLoader(),
             new ReproValidator(new SeverityPolicy()),
             duplicateDetection,
+            Options.Create(new DuplicateDetectionOptions()),
             unitOfWork,
             new MvpProvenanceValidator(),
             new MvpQualityGate(),

@@ -1093,6 +1093,201 @@ namespace GameBug.Infrastructure.Persistence.Migrations
                     b.ToTable("ticket_import_batches", (string)null);
                 });
 
+            modelBuilder.Entity("GameBug.Domain.Evaluation.EvaluationCaseResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActualClassification")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("actual_classification");
+
+                    b.Property<int?>("ActualRank")
+                        .HasColumnType("integer")
+                        .HasColumnName("actual_rank");
+
+                    b.Property<string>("ActualTopKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("actual_top_key");
+
+                    b.Property<Guid?>("AnalysisRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_run_id");
+
+                    b.Property<string>("CaseId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("case_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("error_code");
+
+                    b.Property<Guid>("EvaluationRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("evaluation_run_id");
+
+                    b.Property<string>("ExpectedDuplicateKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("expected_duplicate_key");
+
+                    b.Property<long?>("LatencyMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("latency_ms");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("outcome");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EvaluationRunId", "CaseId")
+                        .IsUnique();
+
+                    b.ToTable("evaluation_case_results", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.Evaluation.EvaluationRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BuildVersion")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("build_version");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("ConfigurationHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("configuration_hash");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DatasetVersion")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("dataset_version");
+
+                    b.Property<string>("EmbeddingVersion")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("embedding_version");
+
+                    b.Property<string>("GroundTruthVersion")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("ground_truth_version");
+
+                    b.Property<string>("InvalidReason")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("invalid_reason");
+
+                    b.Property<string>("ManifestHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("manifest_hash");
+
+                    b.Property<string>("ManifestId")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("manifest_id");
+
+                    b.Property<string>("ParserVersion")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("parser_version");
+
+                    b.Property<string>("ProtocolVersion")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("protocol_version");
+
+                    b.Property<string>("RankerVersion")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("ranker_version");
+
+                    b.Property<string>("RoutingPolicyVersion")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("routing_policy_version");
+
+                    b.Property<string>("SanitizerVersion")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("sanitizer_version");
+
+                    b.Property<string>("SchemaVersion")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("schema_version");
+
+                    b.Property<string>("SourceCommit")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("source_commit");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TrustPolicyVersion")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("trust_policy_version");
+
+                    b.Property<string>("Validity")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("validity");
+
+                    b.Property<string>("_metricsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("metrics_json");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ManifestHash", "ConfigurationHash")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("evaluation_runs", (string)null);
+                });
+
             modelBuilder.Entity("GameBug.Domain.Evidence.EventTimelineEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1575,67 +1770,6 @@ namespace GameBug.Infrastructure.Persistence.Migrations
                     b.ToTable("ticket_filing_requests", (string)null);
                 });
 
-            modelBuilder.Entity("GameBug.Domain.Trust.TrustReport", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<Guid>("AnalysisRunId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("analysis_run_id");
-
-                    b.Property<string>("AllowedActions")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("allowed_actions_json");
-
-                    b.Property<DateTimeOffset>("EvaluatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("evaluated_at");
-
-                    b.Property<string>("InputHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("input_hash");
-
-                    b.Property<string>("Outcome")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("outcome");
-
-                    b.Property<string>("PolicyVersion")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("policy_version");
-
-                    b.Property<Guid>("TargetId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("target_id");
-
-                    b.Property<string>("TargetType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("target_type");
-
-                    b.Property<string>("Violations")
-                        .IsRequired()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("violations_json");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TargetType", "TargetId", "PolicyVersion", "InputHash")
-                        .IsUnique()
-                        .HasDatabaseName("IX_trust_reports_target_policy_hash");
-
-                    b.ToTable("trust_reports", (string)null);
-                });
-
             modelBuilder.Entity("GameBug.Domain.ReproCases.ReproCase", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1753,6 +1887,67 @@ namespace GameBug.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("repro_steps", (string)null);
+                });
+
+            modelBuilder.Entity("GameBug.Domain.Trust.TrustReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AllowedActions")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("allowed_actions_json");
+
+                    b.Property<Guid>("AnalysisRunId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("analysis_run_id");
+
+                    b.Property<DateTimeOffset>("EvaluatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("evaluated_at");
+
+                    b.Property<string>("InputHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("input_hash");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("outcome");
+
+                    b.Property<string>("PolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("policy_version");
+
+                    b.Property<Guid>("TargetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("target_type");
+
+                    b.Property<string>("Violations")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("violations_json");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TargetType", "TargetId", "PolicyVersion", "InputHash")
+                        .IsUnique()
+                        .HasDatabaseName("IX_trust_reports_target_policy_hash");
+
+                    b.ToTable("trust_reports", (string)null);
                 });
 
             modelBuilder.Entity("GameBug.Infrastructure.HistoricalTickets.HistoricalTicketIndexJobEntity", b =>
@@ -1892,6 +2087,22 @@ namespace GameBug.Infrastructure.Persistence.Migrations
                     b.ToTable("idempotency_requests", (string)null);
                 });
 
+            modelBuilder.Entity("GameBug.Infrastructure.Persistence.WorkerHeartbeat", b =>
+                {
+                    b.Property<string>("WorkerName")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("worker_name");
+
+                    b.Property<DateTimeOffset>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_heartbeat_at");
+
+                    b.HasKey("WorkerName");
+
+                    b.ToTable("worker_heartbeats", (string)null);
+                });
+
             modelBuilder.Entity("GameBug.Domain.Analysis.AnalysisAiExecution", b =>
                 {
                     b.HasOne("GameBug.Domain.Analysis.AnalysisRun", null)
@@ -1914,6 +2125,15 @@ namespace GameBug.Infrastructure.Persistence.Migrations
                     b.HasOne("GameBug.Domain.BugReports.BugReport", null)
                         .WithMany("Attachments")
                         .HasForeignKey("BugReportId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GameBug.Domain.Evaluation.EvaluationCaseResult", b =>
+                {
+                    b.HasOne("GameBug.Domain.Evaluation.EvaluationRun", null)
+                        .WithMany("CaseResults")
+                        .HasForeignKey("EvaluationRunId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -2030,6 +2250,11 @@ namespace GameBug.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("GameBug.Domain.BugReports.BugReport", b =>
                 {
                     b.Navigation("Attachments");
+                });
+
+            modelBuilder.Entity("GameBug.Domain.Evaluation.EvaluationRun", b =>
+                {
+                    b.Navigation("CaseResults");
                 });
 
             modelBuilder.Entity("GameBug.Domain.Evidence.EvidenceFact", b =>
