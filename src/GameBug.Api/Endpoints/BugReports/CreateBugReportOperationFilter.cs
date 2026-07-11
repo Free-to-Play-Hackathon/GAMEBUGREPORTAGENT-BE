@@ -8,20 +8,34 @@ public sealed class CreateBugReportOperationFilter : IOperationFilter
 {
     public void Apply(OpenApiOperation operation, OperationFilterContext context)
     {
-        if (!string.Equals(context.ApiDescription.HttpMethod, HttpMethods.Post, StringComparison.OrdinalIgnoreCase))
+        bool isPost = string.Equals(
+            context.ApiDescription.HttpMethod,
+            HttpMethods.Post,
+            StringComparison.OrdinalIgnoreCase);
+        bool isPut = string.Equals(
+            context.ApiDescription.HttpMethod,
+            HttpMethods.Put,
+            StringComparison.OrdinalIgnoreCase);
+        if (!isPost && !isPut)
         {
             return;
         }
 
         string relativePath = context.ApiDescription.RelativePath ?? string.Empty;
-        bool isCreateReport = string.Equals(relativePath, "api/v1/bug-reports", StringComparison.OrdinalIgnoreCase);
-        bool isStartAnalysis = relativePath.StartsWith("api/v1/bug-reports/", StringComparison.OrdinalIgnoreCase) &&
+        bool isCreateReport = isPost &&
+            string.Equals(relativePath, "api/v1/bug-reports", StringComparison.OrdinalIgnoreCase);
+        bool isStartAnalysis = isPost &&
+            relativePath.StartsWith("api/v1/bug-reports/", StringComparison.OrdinalIgnoreCase) &&
             relativePath.EndsWith("/analyses", StringComparison.OrdinalIgnoreCase);
-        bool isHistoricalTicketImport = string.Equals(
-            relativePath,
-            "api/v1/admin/historical-tickets/import",
-            StringComparison.OrdinalIgnoreCase);
-        if (!isCreateReport && !isStartAnalysis && !isHistoricalTicketImport)
+        bool isHistoricalTicketImport = isPost && string.Equals(
+                relativePath,
+                "api/v1/admin/historical-tickets/import",
+                StringComparison.OrdinalIgnoreCase);
+        bool isQaMutation = relativePath.StartsWith(
+                "api/v1/analyses/",
+                StringComparison.OrdinalIgnoreCase) &&
+            !relativePath.EndsWith("/cancel", StringComparison.OrdinalIgnoreCase);
+        if (!isCreateReport && !isStartAnalysis && !isHistoricalTicketImport && !isQaMutation)
         {
             return;
         }

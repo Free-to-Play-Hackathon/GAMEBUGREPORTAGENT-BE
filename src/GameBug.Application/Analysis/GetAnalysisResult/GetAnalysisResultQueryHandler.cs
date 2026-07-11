@@ -200,6 +200,7 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
             timelineDto,
             reproDto,
             candidates,
+            matches.FirstOrDefault()?.CandidateSnapshotHash,
             run.Warnings.Select(warning => warning.Code).ToArray(),
             new AnalysisMetadataDto(
                 run.Version, run.SchemaVersion, run.SanitizerVersion, run.ParserVersion,

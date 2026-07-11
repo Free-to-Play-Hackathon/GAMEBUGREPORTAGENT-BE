@@ -160,10 +160,6 @@ internal sealed class GetQaReviewQueryHandler : IRequestHandler<GetQaReviewQuery
                 }
             }
         }
-        else
-        {
-            list.AddRange(new[] { "markDuplicate", "createNewTicket", "requestMoreInformation", "rejectAnalysis" });
-        }
         return list;
     }
 }

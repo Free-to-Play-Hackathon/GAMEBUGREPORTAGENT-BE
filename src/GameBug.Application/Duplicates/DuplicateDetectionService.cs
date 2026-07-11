@@ -76,11 +76,35 @@ public sealed class DuplicateDetectionService : IDuplicateDetectionService
             .ToList();
 
         var scored = pool.Select(candidate => Score(document, candidate)).ToList();
-        var matches = scored
+        var rankedCandidates = scored
             .OrderByDescending(match => match.Score)
             .ThenBy(match => match.Ticket.ExternalId, StringComparer.OrdinalIgnoreCase)
             .Take(_options.ResultLimit)
-            .Select((item, index) => ToMatch(run.Id, item, index + 1, _options.RankerVersion))
+            .ToArray();
+        string candidateSnapshotHash = DuplicateTextNormalizer.Hash(JsonSerializer.Serialize(new
+        {
+            runId = run.Id.Value,
+            document.InputHash,
+            indexVersion,
+            rankerVersion = _options.RankerVersion,
+            candidates = rankedCandidates.Select((item, index) => new
+            {
+                rank = index + 1,
+                item.Ticket.Id,
+                item.Ticket.ExternalId,
+                item.Score,
+                item.Classification,
+                item.SignalScores,
+                item.ChannelScores
+            })
+        }));
+        var matches = rankedCandidates
+            .Select((item, index) => ToMatch(
+                run.Id,
+                item,
+                index + 1,
+                _options.RankerVersion,
+                candidateSnapshotHash))
             .ToArray();
 
         await _tickets.SaveDuplicateMatchesAsync(run.Id, matches, cancellationToken);
@@ -231,19 +255,13 @@ public sealed class DuplicateDetectionService : IDuplicateDetectionService
             _ => score
         };
 
-    private static DuplicateMatch ToMatch(AnalysisRunId runId, ScoredCandidate item, int rank, string rankerVersion)
+    private static DuplicateMatch ToMatch(
+        AnalysisRunId runId,
+        ScoredCandidate item,
+        int rank,
+        string rankerVersion,
+        string candidateSnapshotHash)
     {
-        string snapshot = DuplicateTextNormalizer.Hash(JsonSerializer.Serialize(new
-        {
-            item.Ticket.Id,
-            item.Ticket.ExternalId,
-            item.Score,
-            item.Classification,
-            item.SignalScores,
-            item.ChannelScores,
-            rankerVersion
-        }));
-
         var result = DuplicateMatch.Create(
             Guid.NewGuid(),
             runId,
@@ -259,7 +277,7 @@ public sealed class DuplicateDetectionService : IDuplicateDetectionService
             rankerVersion,
             rerankerModel: null,
             rerankerVersion: null,
-            snapshot,
+            candidateSnapshotHash,
             DateTimeOffset.UtcNow);
 
         if (result.IsFailure)

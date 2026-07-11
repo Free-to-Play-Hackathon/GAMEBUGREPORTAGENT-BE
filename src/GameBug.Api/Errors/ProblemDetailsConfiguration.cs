@@ -43,6 +43,12 @@ public class GlobalExceptionHandler : IExceptionHandler
                 "Request payload too large",
                 false),
 
+            BadHttpRequestException => (
+                StatusCodes.Status400BadRequest,
+                "INVALID_REQUEST",
+                "Request body is invalid",
+                false),
+
             ObjectStorageException => (
                 StatusCodes.Status503ServiceUnavailable,
                 "STORAGE_FAILURE",

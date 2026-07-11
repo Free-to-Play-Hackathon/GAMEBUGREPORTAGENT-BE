@@ -96,10 +96,12 @@ public class TrustReport
         }
 
         // 2. Calculate allowed actions based on outcome
-        var allowedActions = new List<AllowedQaAction>
+        var allowedActions = new List<AllowedQaAction>();
+
+        if (outcome == QualityOutcome.Rejected)
         {
-            AllowedQaAction.RejectAnalysis // Reject is always allowed for any open review
-        };
+            allowedActions.Add(AllowedQaAction.RejectAnalysis);
+        }
 
         if (outcome != QualityOutcome.Rejected)
         {

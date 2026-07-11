@@ -16,11 +16,11 @@ public static class QaReviewEndpoints
 {
     public static void MapQaReviewEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/v1/analyses/{analysisId:guid}/review")
+        var group = app.MapGroup("/api/v1/analyses/{analysisId:guid}")
             .WithTags("QA Workflow")
             .RequireAuthorization();
 
-        group.MapPost("/", async (Guid analysisId, [FromBody] OpenQaReviewRequest request, ISender sender, HttpRequest httpRequest, CancellationToken cancellationToken) =>
+        group.MapPost("/review", async (Guid analysisId, [FromBody] OpenQaReviewRequest request, ISender sender, HttpRequest httpRequest, CancellationToken cancellationToken) =>
         {
             if (!TryGetIdempotencyKey(httpRequest, out string idempotencyKey, out IResult error))
             {
@@ -39,7 +39,7 @@ public static class QaReviewEndpoints
             return Results.Created(location, new { ReviewId = result.Value });
         });
 
-        group.MapGet("/", async (Guid analysisId, ISender sender, CancellationToken cancellationToken) =>
+        group.MapGet("/review", async (Guid analysisId, ISender sender, CancellationToken cancellationToken) =>
         {
             var query = new GetQaReviewQuery(analysisId);
             var result = await sender.Send(query, cancellationToken);

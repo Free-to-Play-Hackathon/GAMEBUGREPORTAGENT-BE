@@ -5,6 +5,7 @@ using GameBug.Api.Endpoints.Evaluations;
 using GameBug.Api.Endpoints.QaDecisions;
 using GameBug.Api.Errors;
 using GameBug.Api.Middleware;
+using GameBug.Api.Security;
 using GameBug.Application;
 using GameBug.Infrastructure;
 using GameBug.Infrastructure.Configuration;
@@ -36,7 +37,18 @@ long maxBodyBytes = builder.Configuration.GetValue<long?>("Intake:MaxRequestBody
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maxBodyBytes);
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = maxBodyBytes);
 
-builder.Services.AddAuthentication();
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services
+        .AddAuthentication(DevelopmentAuthenticationHandler.SchemeName)
+        .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, DevelopmentAuthenticationHandler>(
+            DevelopmentAuthenticationHandler.SchemeName,
+            _ => { });
+}
+else
+{
+    builder.Services.AddAuthentication();
+}
 builder.Services.AddAuthorization();
 builder.Services.AddRateLimiter(options =>
 {
