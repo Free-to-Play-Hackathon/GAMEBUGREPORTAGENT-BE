@@ -5,6 +5,7 @@ using GameBug.Application.Abstractions.Observability;
 using GameBug.Application.Abstractions.Parsing;
 using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Abstractions.Security;
+using GameBug.Application.Abstractions.Filing;
 using GameBug.Application.Abstractions.Time;
 using GameBug.Infrastructure.Parsing;
 using GameBug.Infrastructure.Files;
@@ -19,6 +20,7 @@ using GameBug.Infrastructure.Time;
 using GameBug.Application.Duplicates;
 using GameBug.Application.HistoricalTickets.ImportHistoricalTickets;
 using GameBug.Infrastructure.HistoricalTickets;
+using GameBug.Infrastructure.Filing;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -48,6 +50,8 @@ public static class DependencyInjection
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
         services.AddScoped<IAnalysisRunRepository, AnalysisRunRepository>();
         services.AddScoped<IHistoricalTicketRepository, HistoricalTicketRepository>();
+        services.AddScoped<IQaReviewRepository, QaReviewRepository>();
+        services.AddScoped<ITicketFilingGateway, InternalTicketFilingGateway>();
         services.AddScoped<IGameContextRepository, GameContextRepository>();
         services.AddScoped<IAnalysisOutboxStore, AnalysisOutboxStore>();
         services.AddScoped<IBackgroundJobQueue, DurableBackgroundJobQueue>();

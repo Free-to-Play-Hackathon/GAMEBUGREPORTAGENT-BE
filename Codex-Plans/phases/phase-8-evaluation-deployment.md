@@ -1,810 +1,364 @@
-# Phase 8 - Backend Evaluation, Deployment và Release Hardening
+# Phase 8 - Evaluation va Demo Release MVP
 
-## 1. Kết quả cần đạt
+## 1. Muc tieu va ket qua can co
 
-Phase 8 biến backend MVP thành hệ thống có thể build, deploy, reset, đo lường và phục hồi lặp lại:
-
-```text
-Immutable benchmark manifest
-  -> queued evaluation run
-  -> execute held-out cases with frozen config
-  -> calculate per-case + aggregate metrics
-  -> persist measured results and artifacts
-
-Source commit + pinned SDK/packages
-  -> test/build
-  -> API/Worker container images
-  -> database migration step
-  -> seed/index/warmup
-  -> health/readiness verification
-  -> repeatable golden backend scenario
-```
-
-Phase này không mở rộng feature. Chỉ sửa blocker về correctness, security, reliability, evaluation integrity hoặc deployment repeatability.
-
-## 2. Entry criteria
-
-- Phase 0-7 đạt exit gate tương ứng.
-- Critical path Intake -> Evidence -> Repro -> Duplicate -> Human Decision chạy E2E.
-- Worker retry/checkpoint, trust gate, duplicate benchmark và Vision OFF fallback đã có test.
-- Dataset có immutable held-out split và ground truth.
-- API/Worker composition roots dùng strongly typed configuration.
-- Không còn migration chưa review hoặc secret nằm trong source/appsettings.
-
-## 3. Phạm vi
-
-### Trong Phase 8
-
-- Evaluation domain, runner, metric calculators và result APIs.
-- Manual/assisted triage timing data backend và metric integrity rules.
-- Container images cho API/Worker và local/demo Compose topology.
-- Migration, seed/reset/reindex/warmup scripts có guard.
-- Runtime configuration, secrets, health, readiness và graceful shutdown.
-- Structured logs, metrics, traces, audit và release metadata.
-- Load, resilience, security, backup/restore và clean-environment E2E tests.
-- CI/release gates, deployment runbook và final backend checklist.
-
-### Không làm trong Phase 8
-
-- Không triển khai giao diện, slide hoặc presentation assets.
-- Không tích hợp tracker thật, full SSO/RBAC hoặc microservices.
-- Không đổi model/prompt/weight chỉ để làm đẹp held-out metric.
-- Không claim target thành measured result.
-- Không thêm Kubernetes/Kafka nếu container deployment hiện tại đủ.
-- Không tự động apply destructive reset trên production/staging shared data.
-
-## 4. Evaluation principles
-
-### Target khác measured result
-
-Các target ban đầu:
-
-- Triage time saved >= 50%.
-- Duplicate Recall@3 >= 80%.
-- Grounded required fields >= 90%.
-- Unsupported steps <= 10%.
-
-Đây không phải kết quả. Backend chỉ xuất `measured` sau khi run trên immutable held-out manifest. Nếu không đạt, lưu đúng kết quả và per-case errors; không đổi denominator/split sau khi xem kết quả.
-
-### Reproducibility identity
-
-Mỗi EvaluationRun phải lưu:
-
-- Evaluation run ID và benchmark manifest hash.
-- Dataset/ground-truth/split versions.
-- Source commit/build/image digest.
-- API/Worker code version.
-- Schema, sanitizer, parser, prompt, model, embedding, ranker, trust, vision và catalog versions.
-- Per-task route profile, requested/resolved model, routing-policy version, escalation trigger/chosen execution và provider availability snapshot.
-- Effective feature flags/thresholds/weights hash.
-- Started/completed timestamps, environment label và random seed nếu có.
-
-Không có đủ identity trên thì run là `InvalidForClaim`, dù metric đã tính được.
-
-### Model-routing evaluation matrix
-
-Evaluation phải so paired profiles trên cùng immutable cases, không kết luận từ model confidence:
-
-| Profile | Mục đích |
-|---|---|
-| `baseline-current` | Provider/model hiện tại để đo migration regression |
-| `luna-terra-default` | Luna normalization + Terra repro; production candidate |
-| `terra-only-ablation` | Đo Luna stage có thực sự tăng quality/cost efficiency không |
-| `luna-terra-sol-escalation` | Đo incremental quality, escalation rate và chi phí của Sol |
-| `vision-off` / `vision-terra` | Đo tác động vision độc lập với text baseline |
-| `duplicate-deterministic` / `duplicate-luna-explanation` | Chứng minh AI explanation không làm đổi retrieval correctness |
-
-Report bắt buộc có quality metrics, latency p50/p95, input/output tokens, estimated cost per analysis, fallback/escalation rate, invalid-schema rate và unsupported-step rate theo từng route. Chỉ promote profile nếu trust metrics không regression ngoài ngưỡng đã chốt và cost/latency nằm trong budget.
-
-Release startup smoke test phải gọi/verify model availability theo environment hoặc dùng provider capability endpoint phù hợp. Nếu account chưa có GPT-5.6 preview access, deployment fail-fast khi route required; optional Sol/vision route tự disable có warning rõ theo policy. Không âm thầm map một model ID khác mà vẫn ghi metadata GPT-5.6.
-
-### Split discipline
-
-- `tuning`: dùng phát triển/tune parser, prompt, threshold, weight.
-- `heldOut`: chỉ dùng final evaluation hoặc milestone có kiểm soát.
-- Case không được thuộc hai split.
-- Held-out raw expected output không được đưa vào prompt/few-shot/cache warmup.
-- Mọi change sau held-out run phải tạo code/config version và run mới.
-
-## 5. Metric definitions
-
-### Duplicate metrics
-
-Cho tập duplicate cases `D`, với `correctTickets(c)` là ticket/family ground truth:
+Chot backend thanh ban demo co the reset, chay lai va xuat metric co identity:
 
 ```text
-Recall@K = count(c in D where topK(c) intersects correctTickets(c)) / |D|
-MRR      = mean(1 / rank of first correct ticket; 0 if absent)
+clean DB/storage
+  -> migrate + seed + reindex
+  -> start API + Worker
+  -> run golden QA flow
+  -> run immutable evaluation manifest
+  -> export JSON artifact
 ```
 
-`Precision@3` cần relevance labels rõ cho từng candidate; nếu ground truth chỉ có một ticket, báo đúng protocol đó, không diễn giải như precision toàn tracker.
+Phase nay khong them product feature moi, tru khi feature do chan correctness, benchmark hoac demo.
 
-Ngoài ra lưu:
+## 2. Diem noi voi source hien tai
 
-- Recall@1, Recall@3.
-- MRR.
-- LikelyDuplicate/Related/New/Insufficient confusion matrix.
-- Hard-negative false-positive rate.
-- Candidate/retrieval/reranker latency.
+- `deploy/docker-compose.yml` da co PostgreSQL/pgvector va MinIO.
+- API da co `/health/live`; can them readiness co dependency check.
+- Historical ticket import/index da co endpoint, repository va durable index queue.
+- Analysis pipeline da luu component versions/checkpoints/warnings.
+- Duplicate matches da co rank, score, ranker version va snapshot hash.
+- `demo.ps1` hien chi demo Phase 1; phase nay se nang cap thanh full golden flow.
 
-### Grounding metrics
+Khong dua benchmark logic vao Domain product neu no khong phai invariant. Metric calculators deterministic dat o Application/Evaluation.
+
+## 3. Chot evaluation protocol
+
+### 3.1 Dataset layout them moi
+
+Tao thu muc root `evaluation/`:
 
 ```text
-Grounded required-field rate
-= required fields with valid eligible direct/corroborated sources
- / total required fields evaluated
+evaluation/
+  manifests/
+    demo-v1.json
+  cases/
+    GB-DUP-001/
+      report.json
+      crash.log
+    GB-HN-001/
+      report.json
+      crash.log
+  ground-truth/
+    demo-v1.json
+  artifacts/
+    .gitkeep
 ```
 
-Chỉ source đã qua Phase 6 provenance validation mới được tính. Source ID tồn tại nhưng sai type/run/hash không tính.
+- Manifest chua case IDs, split, dataset version, ground-truth version va protocol version.
+- Case file khong chua expected answer de runner/prompt vo tinh doc duoc.
+- Ground truth tach rieng, chi evaluator doc sau khi case da chay.
+- Artifact generated khong commit, tru mot precomputed golden artifact duoc label ro neu can backup demo.
 
-```text
-Unsupported-step rate
-= reviewed generated steps labeled unsupported
- / total reviewed generated steps
-```
+### 3.2 Manifest identity
 
-Metric này cần human label hoặc approved ground truth. Không dùng model confidence tự gắn nhãn.
+Canonicalize JSON theo stable property/case ordering, sau do SHA-256. Persist:
 
-### Completeness và edit metrics
+- `manifestHash`, dataset/ground-truth/protocol versions.
+- Source commit hoac build version neu lay duoc.
+- Configuration hash.
+- Schema, sanitizer, parser, prompt, model, embedding, ranker, trust, vision va catalog versions.
 
-- Ticket completeness: valid required final fields / total required fields.
-- QA edit distance: field changes + step add/remove/edit/reorder theo versioned formula.
-- Need-more-information rate: RequestInfo decisions / reviewed reports.
-- Decision distribution: duplicate/new/request-info/reject.
+Thieu manifest hash/component identity -> run `InvalidForClaim`; metric van co the xem de debug nhung khong dung lam measured claim.
 
-### Timing metrics
+### 3.3 MVP metrics
 
-Manual và assisted session phải cùng case set/protocol:
+| Metric | Numerator | Denominator |
+|---|---|---|
+| Duplicate Recall@1 | duplicate cases co expected ticket o rank 1 | duplicate cases co ground truth |
+| Duplicate Recall@3 | duplicate cases co expected ticket trong top 3 | duplicate cases co ground truth |
+| MRR | tong reciprocal rank | duplicate cases co ground truth |
+| Hard-negative FP rate | hard-negative bi classify LikelyDuplicate | hard-negative cases |
+| Grounded required-field rate | required fields co valid direct source | labeled required fields |
+| Unsupported confirmed-step rate | confirmed steps khong co valid source | all confirmed steps |
+| End-to-end latency | completed - submitted | successful cases |
 
-- Start khi reviewer nhận/open case package theo protocol.
-- End khi final triage decision được submit.
-- Pause/abandon/outlier rule định nghĩa trước.
-- Lưu reviewer pseudonymous ID, mode, case, timestamps và validity; không lưu PII không cần.
+Moi metric artifact bat buoc co numerator, denominator, value va validity. Denominator 0 -> `value=null`, khong tra 0 gia.
 
-```text
-Per-case time saved = manual duration - assisted duration
-Relative saving     = (manual - assisted) / manual
-```
+## 4. Work package 8.1 - Evaluation contracts/domain records
 
-Báo median, IQR/p25-p75, sample count; không chỉ average. Nếu không đủ paired samples, đánh dấu metric preliminary/invalid thay vì suy diễn.
+### Them moi
 
-## 6. Evaluation domain và persistence
+Trong `src/GameBug.Domain/Evaluation/`:
 
-### `evaluation_manifests`
+- `EvaluationRun.cs`: identity, status, timestamps, validity, aggregate metric JSON/reference.
+- `EvaluationRunStatus.cs`: `Queued`, `Running`, `Completed`, `CompletedWithErrors`, `Failed`.
+- `EvaluationValidity.cs`: `ValidForClaim`, `InvalidForClaim`, reason codes.
+- `EvaluationCaseResult.cs`: run/case, analysis id, outcome, expected/actual ranks, timing, error code.
+- `MetricResult.cs`: name, numerator, denominator, nullable value, unit/validity.
 
-- ID/name/version/hash.
-- Dataset and ground-truth versions.
-- Ordered case IDs + split.
-- Required metrics/protocol version.
-- Created/approved by and timestamps.
-- Immutable sau approve.
+Domain invariant toi thieu:
 
-### `evaluation_runs`
+- Run khong complete neu manifest hash rong.
+- Case ID unique trong mot run.
+- Numerator/denominator khong am; numerator khong vuot denominator voi ratio metric.
+- Run co case fail co the `CompletedWithErrors`, khong mat ket qua case thanh cong.
 
-| Column | Ý nghĩa |
-|---|---|
-| `id/manifest_id` | Run identity |
-| `status` | Queued/Running/Completed/CompletedWithErrors/Failed/Cancelled |
-| `configuration_json/hash` | Effective frozen config |
-| `code_build/image_digest` | Release identity |
-| `dataset/ground_truth versions` | Data identity |
-| `component_versions_json` | Parser/prompt/model/ranker/trust/vision... |
-| `environment` | local/demo/CI-evaluation |
-| `validity_status/reasons` | ValidForClaim/InvalidForClaim |
-| `started/completed_at` | UTC |
+Them `tests/GameBug.Domain.UnitTests/EvaluationDomainTests.cs`.
 
-### `evaluation_case_results`
+### Them contracts
 
-- Run/case IDs, outcome/error code/durations.
-- Generated analysis/result references.
-- Expected vs actual duplicate ranks/classification.
-- Grounding/unsupported/completeness/edit metrics.
-- Component latencies/warnings.
-- No raw secret/provider response.
+Trong `src/GameBug.Contracts/Evaluations/`:
 
-Unique `(evaluation_run_id, case_id)`; retries update attempt state nhưng final result identity rõ.
+- `StartEvaluationRequest.cs`: chi nhan allowlisted `manifestId` va `profile`.
+- `EvaluationRunResponse.cs`.
+- `EvaluationCaseResponse.cs`.
+- `MetricResponse.cs`.
 
-### `evaluation_metrics`
+Khong nhan arbitrary file path/URL trong public request.
 
-- Run ID, metric name/version, value, numerator, denominator.
-- Unit, confidence/sample metadata, validity/reason.
-- Calculation code version and created time.
+## 5. Work package 8.2 - Manifest loader va metric calculators
 
-Lưu numerator/denominator để audit, không chỉ rounded percentage.
+### Them abstraction
 
-### `triage_sessions`
+Trong `src/GameBug.Application/Abstractions/Evaluation/`:
 
-- Case ID, mode Manual/Assisted, reviewer pseudonymous ID.
-- Start/end/duration, decision, validity/exclusion reason.
-- Protocol version and created time.
-- Immutable after finalized; correction creates superseding record/audit.
+- `IEvaluationManifestLoader.cs`.
+- `IEvaluationRunRepository.cs` co the dat trong `Abstractions/Persistence` neu theo convention repository hien tai.
+- `IEvaluationArtifactWriter.cs`.
 
-## 7. Public/admin backend contracts
+### Them implementation Application
 
-### POST `/api/v1/evaluations`
+Trong `src/GameBug.Application/Evaluation/`:
 
-Admin/lead policy, `Idempotency-Key` bắt buộc:
-
-```json
-{
-  "manifestId": "held-out-v1",
-  "configurationProfile": "release-candidate",
-  "visionMode": "off",
-  "notes": "Final backend RC evaluation"
-}
-```
-
-Response `202` trả evaluation ID, status URL và frozen configuration hash.
-
-### GET `/api/v1/evaluations/{evaluationId}`
-
-Trả status, progress, versions, validity, aggregate metrics và per-case summaries có pagination. Không trả ground-truth details trước khi run hoàn tất nếu policy cần bảo vệ held-out data.
-
-### Timing session endpoints hoặc CLI import
-
-Backend có thể cung cấp admin endpoints hoặc validated CLI import cho manual/assisted timing. Contract phải enforce mode, case/manifest membership, timestamps, decision và protocol version.
-
-Evaluation endpoints không cho caller truyền arbitrary model/secret/SQL/config JSON. Chỉ chọn allowlisted profile/feature mode; server resolve effective config và hash.
-
-## 8. Deployment topology
-
-```text
-API container -------------------┐
-                                 ├── PostgreSQL + pgvector
-Worker container ----------------┤
-                                 ├── Private object storage
-Migration/seed one-shot container┤
-                                 └── External AI/embedding providers
-
-Telemetry from API/Worker -> configured logs/metrics/traces backend
-Secrets -> runtime environment/secret store
-```
-
-API và Worker deploy độc lập nhưng phải ghi cùng compatibility/release version. Worker cũ/API mới overlap chỉ được phép khi migration và job/contracts backward-compatible.
-
-## 9. Container requirements
-
-### API/Worker Dockerfiles
-
-- Multi-stage restore/build/publish/runtime.
-- Pin .NET SDK/runtime version tương thích `global.json`.
-- Restore cache tối ưu nhưng build reproducible.
-- Runtime chạy non-root.
-- Chỉ copy published artifacts cần thiết.
-- Read-only root filesystem nếu adapter/temp paths hỗ trợ; writable paths explicit.
-- Set invariant/globalization/timezone behavior rõ; persist UTC.
-- Không bake appsettings secrets, `.env`, source dataset nhạy cảm hoặc dev certificate vào image.
-- Health endpoint/container probe phù hợp từng host.
-- OCI labels: source commit, build time, version.
-
-API và Worker dùng cùng Application/Domain build. Không build cùng tag `latest` làm release identity duy nhất; dùng immutable version/digest.
-
-### Compose profiles
-
-`deploy/docker-compose.yml` nên có:
-
-- `infra`: PostgreSQL/pgvector + MinIO.
-- `app`: API + Worker.
-- `tools`: migration + seed/evaluation runner one-shot.
-- Health/dependency conditions, private network và named volumes.
-- Local ports/config override qua `.env`, không chứa production secrets.
-
-## 10. Migration strategy
-
-Migration là deployment step riêng, không tự động chạy từ mọi API/Worker instance.
-
-Quy trình:
-
-1. Backup/snapshot theo environment policy.
-2. Validate DB version/current migration.
-3. Apply backward-compatible migrations bằng one-shot command/container.
-4. Verify pgvector extension/index/schema constraints.
-5. Deploy API/Worker release.
-6. Run post-deploy smoke/health checks.
+- `EvaluationManifest.cs` va case/ground-truth records.
+- `EvaluationManifestValidator.cs`.
+- `EvaluationIdentityBuilder.cs`.
+- `DuplicateMetricCalculator.cs`.
+- `GroundingMetricCalculator.cs`.
+- `LatencyMetricCalculator.cs`.
 
 Rules:
 
-- Ưu tiên expand -> deploy compatible code -> backfill -> contract ở release sau.
-- Không rename/drop required column trong cùng release khi API/Worker overlap.
-- Vector dimension change cần new column/index/re-embedding plan, không alter tùy tiện.
-- Long index build/backfill có runbook và progress/timeout.
-- Migration rollback không giả định luôn an toàn; restore plan là fallback cho destructive failure.
+- Calculator nhan immutable result records, khong query DB truc tiep.
+- Recall/MRR dung historical ticket stable key (`BUG-201`), khong dung DB Guid lam ground truth.
+- Grounding dung trust report cua Phase 6; source sai run/type khong duoc tinh grounded.
+- Unsupported-step metric chi `ValidForClaim` neu protocol/label source duoc khai bao.
+- Unit test calculator bang fixture nho, khong goi AI/database.
 
-CI phải apply toàn bộ migrations từ empty DB và upgrade từ gần nhất supported snapshot.
+Them tests:
 
-## 11. Seed, reset, reindex và warmup
+- `tests/GameBug.Application.UnitTests/EvaluationManifestTests.cs`.
+- `tests/GameBug.Application.UnitTests/DuplicateMetricCalculatorTests.cs`.
+- `tests/GameBug.Application.UnitTests/GroundingMetricCalculatorTests.cs`.
 
-### Seed command
+## 6. Work package 8.3 - Evaluation runner
 
-- Import game catalog, expected behavior, historical tickets, reports/assets và benchmark manifests.
-- Idempotent theo dataset/version/hash.
-- Validate references/schema trước write.
-- Trigger/wait ticket indexing theo explicit flag.
-- Xuất counts/version/hash; không log raw sensitive data.
+### Them slices
 
-### Reset command
+Trong `src/GameBug.Application/Evaluation/RunEvaluation/`:
 
-- Chỉ chạy khi `Environment` thuộc allowlist Local/Demo/Test.
-- Yêu cầu explicit target environment/database identity và confirmation flag.
-- Refuse production/staging shared database.
-- Clear business/object/index/job data theo deterministic order.
-- Re-seed và verify expected counts/golden IDs.
-- Không dùng shell wildcard/destructive path không validate.
+- `RunEvaluationCommand.cs`, validator va handler.
+- Handler load allowlisted manifest, tao `EvaluationRun`, sau do xu ly case theo thu tu stable.
+- Voi moi case: submit/import fixture, start analysis bang existing application use case, doi durable pipeline complete bang internal orchestration/poll co timeout, doc duplicate/trust result, tao `EvaluationCaseResult`.
+- Mot case fail khong lam mat cac case khac; ghi stable error va tiep tuc neu policy cho phep.
 
-### Reindex command
+Trong `src/GameBug.Application/Evaluation/GetEvaluation/`:
 
-- Target index/embedding/ranker version explicit.
-- Idempotent, resumable và bounded concurrency.
-- Report pending/succeeded/failed ticket counts.
-- Không xóa valid old index cho đến khi new version ready/switch policy cho phép.
+- Query status + aggregate + per-case summary.
 
-### Warmup
+Trong `src/GameBug.Application/Evaluation/ExportEvaluation/`:
 
-- Health/readiness không gọi provider tốn phí mỗi request.
-- Optional warmup kiểm tra provider auth/capability và tạo/cache only approved non-held-out input.
-- Không warm held-out cases vào generation/embedding cache.
+- Xuat canonical JSON artifact co identity, metrics va per-case summary.
+- Khong xuat raw report/log/evidence excerpts.
 
-## 12. Configuration và secrets
+### Chon execution cho MVP
 
-Strongly typed options cần validate:
+Uu tien evaluator chay nhu internal tool/command theo tung case de it rework. Neu evaluation lon moi dua vao queue rieng. Khong tai su dung analysis outbox identity lam evaluation job identity.
+
+### Tests
+
+Them `tests/GameBug.Application.UnitTests/RunEvaluationHandlerTests.cs`:
+
+- Manifest khong allowlist/hash mismatch -> fail.
+- Case order stable.
+- Mot case fail -> run `CompletedWithErrors`, case khac van co metric.
+- Retry/export khong tao duplicate run artifact.
+- Missing component version -> `InvalidForClaim`.
+
+## 7. Work package 8.4 - Evaluation persistence
+
+### Them EF/repository
+
+Trong `src/GameBug.Infrastructure/Persistence/`:
+
+- `Repositories/EvaluationRunRepository.cs`.
+- `Configurations/EvaluationRunConfiguration.cs`.
+- `Configurations/EvaluationCaseResultConfiguration.cs`.
+
+Sua:
+
+- `GameBugDbContext.cs`: them DbSets.
+- `Infrastructure/DependencyInjection.cs`: register repository/loader/artifact writer.
+
+Constraint/index:
+
+- Unique `(manifest_hash, configuration_hash, run_sequence/id)` theo identity da chot.
+- Unique `(evaluation_run_id, case_id)`.
+- Index status/created time.
+- Metric/identity JSONB duoc phep cho MVP, nhung cot filter chinh phai typed.
+
+Tao migration goi y `Phase8EvaluationMvp`. Them integration tests cho round-trip identity, case uniqueness va nullable metric value.
+
+### Manifest/artifact Infrastructure
+
+Trong `src/GameBug.Infrastructure/Evaluation/`:
+
+- `FileEvaluationManifestLoader.cs`: resolve chi manifest ID allowlisted duoi root config; chan path traversal.
+- `FileEvaluationArtifactWriter.cs`: ghi artifact vao configured local/demo directory bang temp file + atomic rename.
+- `EvaluationOptions.cs`: manifest root, artifact root, allowlisted manifests, per-case timeout.
+
+API va Worker appsettings dung cung manifest root/profile/version.
+
+## 8. Work package 8.5 - API hoac internal tool
+
+### API toi thieu
+
+Them `src/GameBug.Api/Endpoints/Evaluations/EvaluationEndpoints.cs`:
+
+| Method | Route | Muc dich |
+|---|---|---|
+| POST | `/api/v1/evaluations` | Start allowlisted manifest/profile |
+| GET | `/api/v1/evaluations/{id}` | Status, identity, metrics, case summary |
+| GET | `/api/v1/evaluations/{id}/artifact` | Optional download sanitized artifact |
+
+Sua `src/GameBug.Api/Program.cs` de map endpoint. POST bat buoc idempotency key va chi enable trong Local/Demo/Test hoac policy admin da co.
+
+Neu khong kip API, tao console project `src/GameBug.Tools/GameBug.Tools.csproj` va commands `evaluate`, `seed`, `reset`, `reindex`. Tool phai reuse Application/Infrastructure DI, khong copy business logic. Trong hai lua chon, chi can lam mot execution surface de dong MVP.
+
+Them `tests/GameBug.Api.FunctionalTests/EvaluationEndpointTests.cs` neu chon API: allowlist, idempotency, environment guard, OpenAPI va invalid run ID.
+
+## 9. Work package 8.6 - Seed, reset va reindex
+
+### Them tool/script
+
+Uu tien `GameBug.Tools` nhu tren, hoac command host tuong duong. Can cac command:
 
 ```text
-Database
-ObjectStorage
-Jobs/Outbox/Worker
-Analysis/StageTimeouts
-AI/Repro/Vision/Embedding/Reranker
-DuplicateDetection
-Trust/Security/Retention
-Evaluation
-Observability
-Authentication/Authorization
-RateLimits/CORS
+gamebug-tools migrate
+gamebug-tools seed --dataset demo-v1
+gamebug-tools reindex --dataset demo-v1
+gamebug-tools reset --environment Demo --confirm GAMEBUG_DEMO_RESET
+gamebug-tools evaluate --manifest demo-v1
 ```
 
-Rules:
+### Noi can sua/them
 
-- Runtime secret source cho DB/storage/provider/auth credentials.
-- Không commit production/staging appsettings hoặc `.env`.
-- Startup fail fast khi enabled feature thiếu required config.
-- Disabled feature không bắt buộc secret của feature đó.
-- Log effective non-secret config hash/versions, không raw configuration.
-- Secret rotation không yêu cầu rebuild image.
-- CORS allowlist exact origins nếu HTTP callers cần; không wildcard credentials.
+- Them `src/GameBug.Infrastructure/Seeding/DemoDataSeeder.cs`.
+- Tai su dung `IHistoricalTicketRepository`/index queue va game-context repositories; khong insert vector/search document bang SQL hard-code.
+- Them seed source duoi `evaluation/` hoac `seed/` voi stable IDs/keys.
+- Sua `GameBugReproAgent.slnx` neu them `GameBug.Tools` project.
+- Sua `Directory.Packages.props` chi khi tool can package moi.
 
-Tạo release configuration checklist và script kiểm tra placeholder/default/insecure value.
+### Guard bat buoc
 
-## 13. Health, readiness và graceful shutdown
+- Reset chi chay khi environment la `Local`, `Demo` hoac `Test`.
+- Can explicit confirmation token.
+- Tu choi connection string/DB name khong match allowlist demo/test.
+- Seed idempotent; re-run khong tao duplicate historical ticket/catalog/case.
+- Reindex repeatable va cho index snapshot/version ro rang.
 
-### API
+Them integration tests `DemoDataSeederTests.cs` cho seed hai lan va reset guard.
 
-- `/health/live`: process/runtime sống, không gọi external dependencies.
-- `/health/ready`: DB reachable/migration compatible; object storage/queue dependency theo endpoint policy.
-- Existing read endpoints có thể vẫn phục vụ khi provider down; readiness policy không làm toàn API unavailable vô lý.
+## 10. Work package 8.7 - Health va local demo deployment
 
-### Worker
+### API health
 
-- Liveness: host loop/heartbeat sống.
-- Readiness: DB/queue storage/config available.
-- Provider outage phản ánh metric/circuit state; không nhất thiết kill Worker.
+Sua `src/GameBug.Api/Program.cs` va DI:
 
-### Shutdown
+- Giu `/health/live` chi check process.
+- Them `/health/ready` check PostgreSQL va object storage configuration/connectivity; khong goi AI provider.
+- Response khong lo connection string/secret.
 
-- Ngừng nhận/claim job mới.
-- Truyền cancellation đến stage đang chạy.
-- Ghi attempt Interrupted, không Failed sai.
-- Release/expire lease và để queue redeliver/resume checkpoint.
-- API hoàn tất request trong bounded shutdown timeout.
+### Worker health
 
-## 14. Observability release baseline
+MVP khong can mo public HTTP neu Worker hien la generic host. Them mot trong hai cach, chot mot:
 
-### Structured logs
+- Preferred: `WorkerHeartbeatService` update heartbeat row/lease; API readiness/demo tool check heartbeat freshness.
+- Hoac them local health endpoint neu Worker host da co web stack.
 
-Fields chuẩn:
+Them `src/GameBug.Worker/HostedServices/WorkerHeartbeatService.cs` va persistence entity/config neu chon heartbeat. Stale threshold phai lon hon polling/heartbeat interval.
 
-- `service`, `environment`, `releaseVersion`, `traceId`, `correlationId`.
-- `reportId`, `analysisId`, `evaluationRunId`, `job/attempt/stage` khi có.
-- `durationMs`, `outcome`, `errorCode`, component versions.
-- Provider/model/usage an toàn; không prompt/response/raw content.
+### Compose va startup docs
 
-### Metrics
+- Sua `deploy/docker-compose.yml`: giu infra profile; them API/Worker chi neu da co Dockerfile MVP on dinh.
+- Neu chua containerize app, document command sequence trong `README.md` va de production container hardening sang Phase 12.
+- Them `deploy/.env.example` keys cho environment, manifest/artifact roots; khong commit provider secret.
 
-- HTTP request rate/error/duration theo route template.
-- DB/storage latency/failure/connection pool.
-- Queue depth/oldest age/outbox pending/retries/dead jobs.
-- Analysis/stage duration/status/warnings.
-- Provider latency/failure/schema/token/image usage/circuit state.
-- Embedding cache/index lag/retrieval latency.
-- Trust/quality/duplicate/decision metrics.
-- Evaluation run progress/validity/metrics.
+## 11. Work package 8.8 - Golden E2E va demo script
 
-### Traces
+### Sua/them script
 
-API -> Application -> DB/outbox -> Worker -> stages -> provider/storage/vector search. Sampling phải giữ error/slow traces theo policy nhưng không attach sensitive payload.
+- Nang cap `demo.ps1` tu Phase 1 thanh full flow; hoac giu file cu va them `scripts/demo-e2e.ps1` ro rang hon.
+- Them `scripts/evaluate.ps1` neu CLI command can orchestration.
+- Script dung `try/finally` de cleanup temp artifacts; khong xoa DB/storage ngoai guarded reset.
 
-### Audit
+Golden E2E:
 
-Seed/reset/reindex/evaluation/reprocess/deployment admin actions có actor/environment/version/time. Reset refusal/attempt cũng cần safe operational log.
+1. Check SDK/config/infra.
+2. Apply migrations tu empty DB.
+3. Reset guarded va seed `demo-v1`.
+4. Reindex historical tickets; doi job complete.
+5. Start/check API va Worker.
+6. Submit golden report + log.
+7. Poll analysis den `AwaitingQaReview` voi timeout.
+8. Assert top candidate stable key `BUG-201` trong top 3.
+9. Open QA review va MarkDuplicate.
+10. Assert report closed va zero internal ticket.
+11. Run evaluation manifest.
+12. Export artifact va print path/run ID/metrics.
 
-## 15. Kế hoạch công việc chi tiết
+Script exit code khac 0 neu bat ky assertion nao fail. Khong chi print mau xanh roi tiep tuc.
 
-### P8-WP01 - Evaluation ADR và metric specification
+### Precomputed provider-offline fallback
 
-**Owner:** Evaluation Backend + Backend Core  
-**Phụ thuộc:** Phase 0 benchmark protocol, Phase 4/6 metrics
+Neu live AI khong on dinh, them `evaluation/artifacts/precomputed-demo-v1.json` voi:
 
-- Chốt formulas, denominators, exclusions, rounding và validity.
-- Chốt timing session protocol và sample requirements.
-- Define manifest/version/hash format.
-- Chốt held-out access discipline và invalid-for-claim reasons.
-- Tạo approved examples tính tay để unit-test calculators.
+- `artifactMode: Precomputed`.
+- Original run identity/time/component versions.
+- Hash cua artifact.
+- Banner/console text ro la fallback, khong ghi nhan live measured run.
 
-### P8-WP02 - Evaluation domain/contracts/persistence
+Khong nap precomputed output vao DB nhu the provider vua chay.
 
-**Owner:** Evaluation Backend  
-**Phụ thuộc:** P8-WP01
+## 12. Work package 8.9 - Verification va release evidence
 
-- Implement Manifest, EvaluationRun, CaseResult, Metric, TriageSession.
-- Tạo migrations/tables/indexes mục 6.
-- Append-only/frozen config behavior.
-- Public/admin contracts và stable error catalog.
-- Unit/integration tests constraints/versioning.
+### Automated tests
 
-### P8-WP03 - Benchmark manifest builder/validator
+- Empty DB -> migration -> seed -> golden case thanh cong.
+- Recall@3/MRR dung tren fixture co expected ticket.
+- Grounding metric bo source sai run/type.
+- Denominator 0 -> null/invalid, khong phai zero.
+- Restart Worker giua analysis khong tao duplicate repro/decision/ticket.
+- Vision disabled/provider unavailable khong fail core evaluation.
+- Reset production-like DB bi tu choi.
 
-**Owner:** Evaluation Backend + Retrieval/Data Backend  
-**Phụ thuộc:** P8-WP02, Phase 0 data
+### Artifact can giu sau run
 
-- Build manifest từ explicit case IDs/versions, không directory glob tùy ý.
-- Validate unique cases/split/reference/asset/ticket/source labels.
-- Compute deterministic canonical hash.
-- Detect held-out leakage vào tuning/few-shot fixture manifests.
-- Approve/freeze manifest bằng backend command có audit.
+- Evaluation JSON.
+- Manifest hash va source manifest ID.
+- Migration/version output.
+- Golden E2E summary voi analysis/review IDs.
+- Logs da sanitize du de chan doan; khong gom raw report/log/secret.
 
-### P8-WP04 - Evaluation Worker runner
+## 13. Thu tu implementation de ra demo som
 
-**Owner:** Evaluation Backend + Backend DevOps  
-**Phụ thuộc:** Phase 3 Worker, P8-WP02/03
+1. Dataset/manifest + pure metric calculators.
+2. Evaluation entities/persistence/runner.
+3. Seed/reset/reindex tool va guards.
+4. API/internal execution surface.
+5. Health/readiness.
+6. Golden E2E script.
+7. Clean-environment rehearsal va provider-offline artifact.
 
-Flow:
+## 14. Cat sang phase sau
 
-1. Create frozen run/config snapshot + outbox job.
-2. Process cases với bounded concurrency.
-3. Tạo/reuse isolated report/analysis records theo run namespace.
-4. Wait/execute pipeline và capture terminal result/version/latency.
-5. Persist case result ngay sau mỗi case.
-6. Retry transient per case; permanent case error không mất case khác.
-7. Resume run từ completed case checkpoints.
-8. Mark CompletedWithErrors khi có partial case failures.
+Chuyen sang [Phase 12 - Production Release Hardening](phase-12-production-release-hardening.md): hardened non-root/read-only images, backup/restore rehearsal day du, production observability/alerts, load/capacity/resilience matrix va CI release gates.
 
-Không để benchmark jobs cạnh tranh làm hỏng demo queue; dùng queue name/concurrency limit riêng.
+## 15. Exit gate
 
-### P8-WP05 - Metric calculators
-
-**Owner:** Evaluation Backend  
-**Phụ thuộc:** P8-WP01, WP04
-
-- Duplicate Recall@1/3, MRR, Precision@3 protocol-specific, confusion/hard-negative FPR.
-- Grounding/provenance/unsupported/completeness/edit/need-info.
-- Stage/provider/retrieval/end-to-end latency summaries.
-- Numerator/denominator, sample count, validity/reason.
-- Deterministic rounding and null/zero-denominator handling.
-- Unit tests từ hand-calculated fixtures và property/boundary cases.
-
-### P8-WP06 - Triage timing ingestion và paired analysis
-
-**Owner:** Evaluation Backend  
-**Phụ thuộc:** P8-WP02, WP05
-
-- Validated admin endpoint/CLI import cho Manual/Assisted sessions.
-- Verify case/manifest/reviewer/mode/protocol/timestamp/decision.
-- Pair sessions theo predeclared protocol.
-- Mark abandoned/invalid/outlier theo rule, không delete.
-- Compute median/IQR/relative saving/sample count.
-- Pseudonymize reviewer identity và enforce retention/access.
-
-### P8-WP07 - Evaluation APIs và result export
-
-**Owner:** Backend Core + Evaluation Backend  
-**Phụ thuộc:** P8-WP04 đến WP06
-
-- POST run, GET status/result, optional cancel.
-- Pagination/filter cho per-case summaries.
-- Export machine-readable JSON/CSV artifact có manifest/config/version/metric metadata.
-- Ground-truth access protected; export không chứa raw secrets/provider payload.
-- Idempotency, authorization, rate limit và Problem Details tests.
-
-### P8-WP08 - API/Worker container images
-
-**Owner:** Backend DevOps  
-**Phụ thuộc:** Functional code freeze candidate
-
-- Multi-stage non-root Dockerfiles mục 9.
-- Pin SDK/runtime/base images theo release policy.
-- Build once, tag immutable version/digest.
-- Add OCI release labels and startup entrypoints.
-- Scan image/packages theo available CI tooling.
-- Verify no source secrets, `.env`, test assets hoặc dev cert in layers.
-- Container smoke tests API/Worker startup/shutdown.
-
-### P8-WP09 - Compose/deployment topology
-
-**Owner:** Backend DevOps  
-**Phụ thuộc:** P8-WP08
-
-- PostgreSQL/pgvector, MinIO, API, Worker, migration/seed tools.
-- Private network, health checks, dependency ordering, volumes.
-- Resource/concurrency limits phù hợp demo machine.
-- Environment-specific override không commit secrets.
-- API/Worker logs to stdout/telemetry exporter.
-- One documented command sequence start/stop/status, không giả định hidden manual setup.
-
-### P8-WP10 - Migration/backup/restore
-
-**Owner:** Backend DevOps + Backend Core  
-**Phụ thuộc:** All migrations Phase 1-8
-
-- Migration one-shot image/command.
-- Test empty install và upgrade supported snapshot.
-- Verify backward compatibility API/Worker overlap.
-- Database backup/snapshot command có target validation.
-- Object storage manifest/checksum backup cho seed/demo assets nếu cần.
-- Restore rehearsal vào isolated database/bucket.
-- Record backup/restore version/time/outcome; không log credential.
-
-### P8-WP11 - Seed/reset/reindex/warmup tools
-
-**Owner:** Backend DevOps + Retrieval/Data Backend  
-**Phụ thuộc:** P8-WP09/10, Phase 0/4 data
-
-- Implement behaviors mục 11.
-- Environment guard và explicit confirmation cho reset.
-- Idempotency/repeat-run tests.
-- Verify expected counts, golden report, `BUG-201`, catalog/index/manifest versions.
-- Reindex resume/failure report.
-- Warmup không dùng held-out data.
-
-### P8-WP12 - Configuration/secrets/security hardening
-
-**Owner:** Security Backend + Backend DevOps  
-**Phụ thuộc:** P8-WP08/09
-
-- Inventory required options/secrets theo enabled features.
-- Validate on start và release-preflight command.
-- Remove insecure defaults, wildcard origins, public bucket/queue admin access.
-- Rate/body/file/concurrency/time limits.
-- Secret injection/rotation test; verify no secret in logs, crash output, images/artifacts.
-- Dependency/image/config scan và remediation/blocking policy.
-
-### P8-WP13 - Observability/health/release metadata
-
-**Owner:** Backend DevOps + Backend Core  
-**Phụ thuộc:** P8-WP08/09
-
-- Standardize logs/metrics/traces mục 14.
-- Health/readiness/shutdown behavior mục 13.
-- Expose release/config hash in safe diagnostics/health metadata.
-- Correlate API/outbox/Worker/provider/evaluation traces.
-- Alert thresholds/runbook cho queue backlog, provider failure, migration mismatch, storage/DB errors.
-- Test telemetry không chứa raw report/log/screenshot/prompt/secret.
-
-### P8-WP14 - Performance/load/capacity validation
-
-**Owner:** Backend Performance + Backend DevOps  
-**Phụ thuộc:** P8-WP09, WP13
-
-Scenarios:
-
-- Concurrent report uploads trong configured limits.
-- StartAnalysis burst/idempotency replay.
-- Worker throughput với bounded provider concurrency.
-- Large log streaming near limit.
-- Ticket import/reindex và duplicate query latency.
-- Status/result read load trong lúc processing.
-
-Report p50/p95/p99/error/queue age/resource usage. Mục tiêu là xác định safe concurrency/limits cho demo, không benchmark throughput giả khi provider bị mock mà không ghi rõ.
-
-### P8-WP15 - Resilience/failure/recovery matrix
-
-**Owner:** Backend Core + Backend Test/Quality  
-**Phụ thuộc:** P8-WP09/13
-
-Test:
-
-- API restart trong upload/start/status.
-- Worker kill sau từng critical checkpoint.
-- DB/storage/provider/embedding/reranker/vision outage.
-- Queue duplicate delivery/outbox dispatcher restart.
-- Circuit breaker open/recovery.
-- Disk/volume/connection exhaustion trong bounded test.
-- Migration failure trước app deploy.
-- Restore isolated snapshot rồi chạy golden case.
-
-Assert no duplicate reports/results/tickets, correct partial/error states, stable trace ID và recovery path.
-
-### P8-WP16 - Clean-environment E2E release test
-
-**Owner:** Backend Test/Quality + Backend DevOps  
-**Phụ thuộc:** P8-WP08 đến WP15
-
-Từ máy/runner không có data state:
-
-1. Build/pull release images.
-2. Start infra.
-3. Apply migrations.
-4. Seed/index data và verify versions.
-5. Start API/Worker và wait readiness.
-6. Submit golden report/assets.
-7. Run analysis đến AwaitingQaReview.
-8. Verify `BUG-201`, trust/vision behavior và MarkDuplicate.
-9. Run evaluation manifest và verify metric artifact identity.
-10. Restart Worker/API và repeat idempotency checks.
-11. Stop/start without data loss.
-
-Test phải tự động đủ để chạy CI/nightly/release; external provider-dependent portion có controlled sandbox/recorded contract mode và một real-provider preflight riêng được đánh dấu.
-
-### P8-WP17 - Backend fallback package
-
-**Owner:** Backend DevOps + Backend Core  
-**Phụ thuộc:** P8-WP10/11/16
-
-Chuẩn bị fallback không giả kết quả:
-
-- Versioned database/object-storage snapshot hoặc deterministic seed package.
-- Precomputed **clearly labeled** golden analysis artifact chỉ dùng khi provider unavailable.
-- Manifest ghi code/config/model/prompt/ranker/trust/vision versions đã tạo artifact.
-- Command load artifact vào isolated demo environment, không production.
-- Provider-offline mode chỉ đọc artifact, không giả vờ vừa chạy AI.
-- Checksums và verification command.
-
-### P8-WP18 - CI/release gate và final runbook
-
-**Owner:** Backend DevOps + Backend Core  
-**Phụ thuộc:** Tất cả WP
-
-CI/release pipeline:
-
-```text
-restore -> format/analyzers -> build
--> unit/architecture tests
--> PostgreSQL/MinIO integration tests
--> API/Worker functional + contract tests
--> migration empty/upgrade tests
--> container build/scan/smoke
--> clean E2E
--> benchmark release manifest (controlled)
--> publish immutable artifacts
-```
-
-Final runbook:
-
-- Prerequisites/config/secrets.
-- Deploy/migrate/seed/start/verify.
-- Run/cancel/export evaluation.
-- Queue/outbox/checkpoint/provider/index troubleshooting.
-- Backup/restore/reset/reindex with guards.
-- Roll forward/rollback decision.
-- Incident/error-code lookup.
-- Release sign-off checklist.
-
-## 16. Thứ tự triển khai
-
-```text
-WP01 Evaluation spec -> WP02 Domain/persistence -> WP03 Manifest
-WP03 + Phase 3 -> WP04 Runner -> WP05 Metrics
-WP02 + WP05 -> WP06 Timing -> WP07 APIs/export
-
-Code freeze candidate -> WP08 Images -> WP09 Topology
-All migrations -> WP10 Migration/backup
-WP09 + WP10 -> WP11 Seed/reset/reindex
-WP08 + WP09 -> WP12 Security/config -> WP13 Observability/health
-WP09 + WP13 -> WP14 Performance -> WP15 Resilience
-WP04..WP15 -> WP16 Clean E2E -> WP17 Fallback -> WP18 Release gate/runbook
-```
-
-Evaluation WP01-07 có thể chạy song song với deployment WP08-13 sau khi contracts/component versions ổn định.
-
-## 17. Pull request breakdown đề xuất
-
-| PR | Nội dung |
-|---|---|
-| PR-01 | Evaluation ADR/domain/contracts/migration |
-| PR-02 | Manifest validator + Worker runner/checkpoint |
-| PR-03 | Metric calculators + timing ingestion |
-| PR-04 | Evaluation APIs/export + functional tests |
-| PR-05 | API/Worker Dockerfiles + container smoke tests |
-| PR-06 | Compose + migration/backup/restore tooling |
-| PR-07 | Seed/reset/reindex/warmup guarded tools |
-| PR-08 | Configuration/secrets/health/observability |
-| PR-09 | Load/capacity + resilience matrix |
-| PR-10 | Clean E2E + fallback package + CI/release runbook |
-
-## 18. Release configuration checklist
-
-- [ ] Environment/release/image digest đúng.
-- [ ] DB migration status compatible.
-- [ ] Object storage private/bucket/retention đúng.
-- [ ] Queue names/concurrency/lease/retry đúng.
-- [ ] Provider/model/embedding/vector dimension đúng.
-- [ ] Account/environment thực sự có quyền gọi Luna/Terra và optional Sol; resolved model khớp metadata.
-- [ ] Per-task routes, routing policy, escalation budget/concurrency/kill switch đúng.
-- [ ] Prompt/schema/parser/ranker/trust/vision versions frozen.
-- [ ] Feature flags đúng; Vision disabled không cần secret.
-- [ ] Auth/policies/rate/body/file limits đúng.
-- [ ] CORS không wildcard credentials.
-- [ ] Telemetry exporter/sampling/retention đúng.
-- [ ] Reset/reseed bị chặn ngoài Local/Demo/Test.
-- [ ] Không placeholder/secret trong image/config/log.
-
-## 19. Final backend test matrix
-
-| Area | Gate |
-|---|---|
-| Architecture | Dependency tests xanh |
-| Intake | Streaming upload, validation, ownership, idempotency |
-| Analysis | Async retry/resume/checkpoint/no duplicate result |
-| Evidence | Sanitization, provenance, conflict, uncertainty |
-| Repro | Structured schema, supported steps, severity policy |
-| Model routing | Luna/Terra task isolation, Sol gate/budget, route metadata và deterministic fallback |
-| Duplicate | Hybrid retrieval, hard negatives, Recall@3 |
-| Decision | Duplicate gate, concurrency, filing idempotency |
-| Vision | Safe optional stage, OFF/failure baseline |
-| Evaluation | Manifest/version/metric integrity/reproducibility |
-| Migration | Empty install + supported upgrade |
-| Deployment | Non-root containers + health/readiness/shutdown |
-| Security | Secrets/PII/provider context/access/config scan |
-| Recovery | Restart/outage/backup restore/fallback artifact |
-
-## 20. Demo/release checkpoint cuối Phase 8
-
-1. Từ clean environment, migrate và seed bằng documented commands.
-2. Verify expected versions/counts/index status.
-3. Chạy API/Worker release images và readiness.
-4. Chạy golden report -> analysis -> `BUG-201` -> MarkDuplicate.
-5. Chạy Vision OFF/provider failure scenario, core result vẫn usable.
-6. Chạy held-out evaluation và export measured metrics với complete identity.
-7. Chạy paired `baseline-current`, `luna-terra-default` và escalation ablation; xuất quality/latency/cost theo route.
-8. Restart API/Worker giữa run và chứng minh resume/idempotency.
-9. Restore snapshot trong isolated environment và chạy golden case.
-10. Chạy provider-offline fallback package, artifact được ghi nhãn precomputed rõ.
-11. Kiểm tra logs/traces không chứa raw secret/report/log/image/prompt.
-
-## 21. Definition of Done
-
-### Evaluation
-
-- [ ] Manifest/held-out split immutable và leak checks xanh.
-- [ ] Metrics có formula/version/numerator/denominator/sample validity.
-- [ ] Timing báo paired median/IQR/sample count.
-- [ ] Run lưu đầy đủ code/data/model/component/config identity.
-- [ ] Báo cáo paired model-routing profiles có quality, p50/p95 latency, token/cost và escalation/fallback rate.
-- [ ] Target và measured result không bị trộn.
-
-### Deployment
-
-- [ ] API/Worker images reproducible, immutable-tagged và non-root.
-- [ ] Migration là bước riêng, empty/upgrade tests xanh.
-- [ ] Seed/reset/reindex idempotent và có environment guard.
-- [ ] Secrets runtime-only, configuration fail-fast.
-- [ ] Health/readiness/shutdown behavior đúng.
-
-### Reliability/operations
-
-- [ ] Logs/metrics/traces/audit đủ chẩn đoán critical path.
-- [ ] Load test xác định safe limits/concurrency.
-- [ ] Failure/recovery matrix không tạo duplicate/lost state.
-- [ ] Backup/restore và fallback package đã rehearsal.
-- [ ] Clean E2E chạy lặp lại từ zero state.
-- [ ] Final CI/release gate và runbook hoàn chỉnh.
-
-## 22. Exit gate chính thức
-
-Phase 8 chỉ đóng khi backend có thể được build, migrate, seed, chạy, benchmark, restart và restore bằng documented/automated commands; golden critical path lặp lại được; measured metrics có đầy đủ dataset/config/component identity; và failure scenarios không làm mất hoặc nhân đôi business state. Đây là Definition of Done cuối cho backend hackathon MVP.
-
-## 23. Sau hackathon, ngoài MVP
-
-- Real Jira/GitHub/VNG tracker connector.
-- Full SSO/RBAC, production malware scanner và enterprise retention automation.
-- Automatic game execution/test generation.
-- Service extraction, Kafka/Kubernetes và advanced clustering.
-- Large-scale multi-region/high-availability architecture.
+Phase 8 dong khi mot may/moi truong sach co the migrate, seed, reindex, chay golden flow den QA decision va xuat evaluation artifact co manifest hash, component identity, numerator/denominator. Day la moc demo-ready/release-candidate cua MVP.

@@ -2,6 +2,7 @@ using GameBug.Domain.Analysis;
 using GameBug.Domain.BugReports;
 using GameBug.Domain.Evidence;
 using GameBug.Domain.ReproCases;
+using GameBug.Domain.Duplicates;
 
 namespace GameBug.Application.Abstractions.Persistence;
 
@@ -18,4 +19,5 @@ public interface IAnalysisRunRepository
     Task<ReproCase?> GetReproCaseAsync(AnalysisRunId analysisRunId, CancellationToken cancellationToken);
     Task<AnalysisCheckpoint?> GetCheckpointAsync(AnalysisRunId runId, AnalysisStage stage, string stageVersion, string inputHash, CancellationToken cancellationToken);
     Task SaveCheckpointAsync(AnalysisCheckpoint checkpoint, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<DuplicateMatch>> GetDuplicateMatchesAsync(AnalysisRunId runId, CancellationToken cancellationToken);
 }
