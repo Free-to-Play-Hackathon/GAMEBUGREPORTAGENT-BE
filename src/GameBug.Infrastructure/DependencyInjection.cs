@@ -17,6 +17,7 @@ using GameBug.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Minio;
 
 namespace GameBug.Infrastructure;
@@ -82,20 +83,21 @@ public static class DependencyInjection
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddSingleton<IClock, SystemClock>();
 
-        // Gemini AI Gateway
+        // OpenAI Responses API gateway
         services.AddOptions<AI.AiRoutingOptions>()
             .Bind(configuration.GetSection(AI.AiRoutingOptions.SectionName))
-            .Validate(options => IsValidRoute(options.ReportUnderstanding), "Ai:ReportUnderstanding is invalid.")
-            .Validate(options => IsValidRoute(options.ReproSynthesis), "Ai:ReproSynthesis is invalid.")
+            .Validate(options => IsValidRoute(options.Routes.ReportUnderstanding), "Ai:Routes:ReportUnderstanding is invalid.")
+            .Validate(options => IsValidRoute(options.Routes.ReproSynthesis), "Ai:Routes:ReproSynthesis is invalid.")
             .Validate(options => !string.IsNullOrWhiteSpace(options.RoutingPolicyVersion), "Ai:RoutingPolicyVersion is required.")
             .ValidateOnStart();
         services.AddSingleton<IAiTaskRouter, AI.ConfiguredAiTaskRouter>();
-        services.AddOptions<AI.Providers.GeminiOptions>()
-            .Bind(configuration.GetSection(AI.Providers.GeminiOptions.SectionName))
-            .Validate(options => !string.IsNullOrWhiteSpace(options.Model), "Ai:Gemini:Model is required.")
-            .Validate(options => options.TimeoutSeconds is > 0 and <= 120, "Ai:Gemini:TimeoutSeconds must be between 1 and 120.")
+        services.AddOptions<AI.Providers.OpenAiOptions>()
+            .Bind(configuration.GetSection(AI.Providers.OpenAiOptions.SectionName))
+            .Validate(options => Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out _), "Ai:OpenAI:BaseUrl must be an absolute URI.")
+            .Validate(options => options.TimeoutSeconds is > 0 and <= 120, "Ai:OpenAI:TimeoutSeconds must be between 1 and 120.")
             .ValidateOnStart();
-        services.AddHttpClient<IStructuredAiGateway, AI.Providers.GeminiStructuredAiGateway>();
+        services.AddSingleton<IValidateOptions<AI.Providers.OpenAiOptions>, AI.Providers.OpenAiOptionsValidator>();
+        services.AddHttpClient<IStructuredAiGateway, AI.Providers.OpenAiStructuredAiGateway>();
 
         return services;
     }

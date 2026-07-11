@@ -33,6 +33,14 @@ dotnet ef database update --project src/GameBug.Infrastructure --startup-project
 ```
 
 ### 3. Build & Chạy API Server
+Đặt OpenAI API key bằng secret/environment variable trước khi chạy ngoài chế độ mock:
+
+```powershell
+$env:Ai__OpenAI__ApiKey = "your-api-key"
+```
+
+Phase 2 gọi OpenAI Responses API. Route mặc định dùng `gpt-5.6-luna` cho report normalization và `gpt-5.6-terra` cho repro synthesis. Không ghi API key thật vào `appsettings.json` hoặc source control.
+
 Để chạy API server lắng nghe các request từ client:
 ```bash
 dotnet run --project src/GameBug.Api

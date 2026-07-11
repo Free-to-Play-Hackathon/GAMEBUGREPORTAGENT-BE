@@ -23,7 +23,7 @@ Backend phải thực thi duplicate gate. Không được dựa vào caller tự
 - Candidate snapshot hash, ranker version và ticket IDs đã persist.
 - Reviewer identity/authorization abstraction Phase 1 hoạt động.
 - Phase 3 outbox/Worker có thể reuse nếu filing/reanalysis cần async job.
-- Golden case `BUG-142` top candidate và hard-negative tests xanh.
+- Golden case `BUG-201` top candidate và hard-negative tests xanh.
 
 ## 3. Phạm vi
 
@@ -157,12 +157,12 @@ Request:
 {
   "expectedReviewVersion": 2,
   "baseRevisionId": "019...",
-  "title": "Crash during Dragon King phase 2 when Mage uses Fire Ultimate",
-  "build": { "value": "1.4.12", "status": "supported", "sourceIds": ["fact-build"] },
+  "title": "Ten-pull consumes gems but returns no heroes",
+  "build": { "value": "1.2.7", "status": "supported", "sourceIds": ["fact-build"] },
   "platform": { "value": "Android 14", "status": "supported", "sourceIds": ["fact-platform"] },
   "severity": {
     "level": "high",
-    "reason": "Client crash interrupts the current session",
+    "reason": "Paid currency is consumed without granting the expected rewards",
     "overrideReason": null
   },
   "preconditions": [],
@@ -181,8 +181,8 @@ Response `200` trả revision ID/version, validation summary và updated review 
 {
   "expectedReviewVersion": 3,
   "candidateSnapshotHash": "sha256:...",
-  "selectedTicketId": "BUG-142",
-  "notes": "Same crash signature and boss phase."
+  "selectedTicketId": "BUG-201",
+  "notes": "Same Ten Pull action, timeout error and missing-reward outcome."
 }
 ```
 
@@ -587,7 +587,7 @@ Runbook: xử lý stale review, filing request pending/failed, decision conflict
 
 #### Functional/E2E tests
 
-- Golden flow kết thúc MarkDuplicate `BUG-142`, zero filed tickets.
+- Golden flow kết thúc MarkDuplicate `BUG-201`, zero filed tickets.
 - Hard-negative flow review -> CreateNew -> one internal ticket.
 - Missing-info flow -> answer -> new queued analysis version.
 - Bypass decision endpoint không thể bỏ duplicate gate.
@@ -641,8 +641,8 @@ Từng WP -> WP16 Tests/E2E
 
 1. Mở review cho golden analysis.
 2. Lưu một revision hoặc dùng generated repro.
-3. Acknowledge candidate snapshot có `BUG-142`.
-4. MarkDuplicate `BUG-142`.
+3. Acknowledge candidate snapshot có `BUG-201`.
+4. MarkDuplicate `BUG-201`.
 5. Xác nhận review/analysis/report final states, audit đầy đủ và không có internal ticket.
 6. Retry cùng idempotency key trả same decision.
 

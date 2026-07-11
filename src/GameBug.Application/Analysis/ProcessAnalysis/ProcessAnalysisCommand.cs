@@ -3,4 +3,4 @@ using MediatR;
 
 namespace GameBug.Application.Analysis.StartAnalysis;
 
-public record ProcessAnalysisCommand(Guid AnalysisRunId) : IRequest<Result>;
+public record ProcessAnalysisCommand(Guid AnalysisRunId, string ConfigurationProfile = "default") : IRequest<Result>;

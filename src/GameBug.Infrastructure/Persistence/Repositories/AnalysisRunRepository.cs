@@ -37,10 +37,11 @@ public class AnalysisRunRepository : IAnalysisRunRepository
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<bool> HasActiveRunAsync(BugReportId reportId, string configurationHash, CancellationToken cancellationToken)
+    public async Task<AnalysisRun?> GetActiveRunAsync(BugReportId reportId, string inputHash, string configurationHash, CancellationToken cancellationToken)
     {
-        return await _dbContext.AnalysisRuns.AnyAsync(x =>
+        return await _dbContext.AnalysisRuns.FirstOrDefaultAsync(x =>
             x.ReportId == reportId &&
+            x.InputHash == inputHash &&
             x.ConfigurationHash == configurationHash &&
             (x.Status == AnalysisStatus.Received ||
              x.Status == AnalysisStatus.Queued ||

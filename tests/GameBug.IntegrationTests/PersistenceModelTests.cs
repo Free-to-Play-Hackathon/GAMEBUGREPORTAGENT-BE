@@ -28,7 +28,12 @@ public sealed class PersistenceModelTests
         run.GetIndexes().Should().Contain(index =>
             index.IsUnique && index.GetFilter() != null &&
             index.Properties.Select(property => property.Name)
-                .SequenceEqual(new[] { nameof(AnalysisRun.ReportId), nameof(AnalysisRun.ConfigurationHash) }));
+                .SequenceEqual(new[]
+                {
+                    nameof(AnalysisRun.ReportId),
+                    nameof(AnalysisRun.InputHash),
+                    nameof(AnalysisRun.ConfigurationHash)
+                }));
     }
 
     [Fact]

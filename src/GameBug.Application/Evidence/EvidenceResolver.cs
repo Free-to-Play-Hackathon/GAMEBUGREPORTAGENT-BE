@@ -1,10 +1,63 @@
 using GameBug.Domain.BugReports;
 using GameBug.Domain.Evidence;
+using GameBug.Application.Abstractions.Parsing;
 
 namespace GameBug.Application.Evidence;
 
 public class EvidenceResolver
 {
+    public void AppendGameplayFacts(List<EvidenceFact> facts, GameplayLogFacts? gameplay, string sourceRef)
+    {
+        if (gameplay is null)
+        {
+            return;
+        }
+
+        AddObservedFact(facts, "screen", gameplay.Screen, sourceRef);
+        AddObservedFact(facts, "action", gameplay.Action, sourceRef);
+        AddObservedFact(facts, "resourceType", gameplay.ResourceType, sourceRef);
+        AddObservedFact(facts, "serverResponse", gameplay.ServerResponse, sourceRef);
+        AddObservedFact(facts, "errorCode", gameplay.ErrorCode, sourceRef);
+        AddObservedFact(facts, "resourceBefore", gameplay.ResourceBefore?.ToString(System.Globalization.CultureInfo.InvariantCulture), sourceRef);
+        AddObservedFact(facts, "resourceAfter", gameplay.ResourceAfter?.ToString(System.Globalization.CultureInfo.InvariantCulture), sourceRef);
+        AddObservedFact(facts, "expectedRewardCount", gameplay.ExpectedRewardCount?.ToString(System.Globalization.CultureInfo.InvariantCulture), sourceRef);
+        AddObservedFact(facts, "receivedRewardCount", gameplay.ReceivedRewardCount?.ToString(System.Globalization.CultureInfo.InvariantCulture), sourceRef);
+
+        if (gameplay.ResourceBefore.HasValue && gameplay.ResourceAfter.HasValue)
+        {
+            AddObservedFact(
+                facts,
+                "resourceDelta",
+                (gameplay.ResourceAfter.Value - gameplay.ResourceBefore.Value).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                sourceRef);
+        }
+    }
+
+    private static void AddObservedFact(List<EvidenceFact> facts, string factType, string? value, string sourceRef)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        string excerpt = $"{factType}={value}";
+        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(excerpt))).ToLowerInvariant();
+        var source = new EvidenceSource(
+            EvidenceSourceType.Log,
+            sourceRef,
+            null,
+            null,
+            excerpt,
+            hash,
+            TrustLevel.Observed);
+        var created = EvidenceFact.Create(
+            Guid.NewGuid(), factType, value, EvidenceStatus.Supported, 0.95, new[] { source });
+        if (created.IsSuccess)
+        {
+            facts.Add(created.Value);
+        }
+    }
+
     public List<EvidenceFact> ResolveFacts(
         BugReport report,
         string? logBuildVersion,

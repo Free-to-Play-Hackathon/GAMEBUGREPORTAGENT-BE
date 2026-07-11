@@ -7,6 +7,11 @@ public sealed class AiRoutingOptions
 {
     public const string SectionName = "Ai";
     public string RoutingPolicyVersion { get; set; } = "routing-v1";
+    public AiRoutesOptions Routes { get; set; } = new();
+}
+
+public sealed class AiRoutesOptions
+{
     public AiRouteOptions ReportUnderstanding { get; set; } = new();
     public AiRouteOptions ReproSynthesis { get; set; } = new();
 }
@@ -27,8 +32,8 @@ public sealed class ConfiguredAiTaskRouter(IOptions<AiRoutingOptions> options) :
     public AiRoute Resolve(AiTask task, AiRoutingContext context)
     {
         var route = task == AiTask.NormalizeBugReport
-            ? options.Value.ReportUnderstanding
-            : options.Value.ReproSynthesis;
+            ? options.Value.Routes.ReportUnderstanding
+            : options.Value.Routes.ReproSynthesis;
 
         return new AiRoute(route.Profile, route.Provider, route.Model, route.PromptVersion,
             route.SchemaVersion, options.Value.RoutingPolicyVersion, route.TimeoutSeconds, route.MaxOutputTokens);

@@ -59,7 +59,7 @@ Mỗi `AiResult<T>` tối thiểu phải có `Provider`, `RequestedModel`, `Reso
 | File storage | Object storage qua `IObjectStorage` | Local dùng MinIO; cloud adapter thay sau |
 | Async | Worker host + durable job abstraction | Phase 1 chỉ scaffold Worker, Phase 3 triển khai pipeline |
 | Filing MVP | Mock/internal ticket gateway | Jira/GitHub/VNG tracker là hậu hackathon |
-| Game demo | `Shadow Arena Mobile` synthetic universe | Dữ liệu giả lập nhưng nhất quán và có ground truth |
+| Game demo | `Dragon Kingdom` synthetic universe | Dữ liệu giả lập nhưng nhất quán và có ground truth |
 | API version | `/api/v1` | Model/prompt/ranker version độc lập API version |
 | Time | UTC | Persist `DateTimeOffset`, không dùng local server time |
 | ID | UUID/GUID do application tạo | Có ID trước khi upload/persist, thuận lợi idempotency |
@@ -263,7 +263,7 @@ Mỗi schema phải có `$id`, schema version và `additionalProperties: false` 
 {
   "factId": "fact-001",
   "factType": "buildVersion",
-  "normalizedValue": "1.4.12",
+  "normalizedValue": "1.2.7",
   "status": "supported",
   "confidence": 0.99,
   "sources": [
@@ -271,7 +271,7 @@ Mỗi schema phải có `$id`, schema version và `additionalProperties: false` 
       "sourceType": "log",
       "sourceRef": "attachment-id",
       "location": { "lineStart": 12, "lineEnd": 12 },
-      "excerpt": "Build=1.4.12"
+      "excerpt": "Build=1.2.7"
     }
   ]
 }
@@ -367,26 +367,26 @@ Dataset tối thiểu:
 
 | Dataset | Số lượng | Nội dung bắt buộc |
 |---|---:|---|
-| Game entities | 20-40 | map, boss, character, skill, item, aliases |
+| Game entities | 20-40 | screen, building, hero, resource, action, UI state/error, aliases |
 | Expected behaviors | 10-20 | trigger, expected outcome, source, build range |
 | Historical tickets | 30-50 | title, symptom, build/platform, signature, repro, status |
 | Incoming reports | 10-20 | wording tự nhiên, metadata thiếu có chủ đích |
 | Duplicate families | 8-12 | ticket gốc + wording/context variations |
-| Logs | Ít nhất 1/crash case | build, platform, exception, frames, timestamps |
+| Logs | Ít nhất 1/error case | build, platform, timestamps, screen/action, resource delta, server response, error code |
 | Screenshots | 5-10 | dùng ở Phase 7; có expected visible facts |
 
 #### Golden case bắt buộc
 
-- Report: crash sau boss rồng khi dùng ultimate Mage.
-- Log: build `1.4.12`, Android 14, Samsung S22, `NullReferenceException`, `DragonBossController.OnPhaseTwo`, line 219.
-- Screenshot: Dragon Cave, Dragon King phase 2, Mage UI.
-- Historical duplicate: `BUG-142`, cùng signature/phase, build range `1.4.10-1.4.12`.
+- Report: quay 10 lần, gems đã bị trừ nhưng không nhận được hero.
+- Log: build `1.2.7`, Android 14, Samsung S22, action `TenPull`, gems `5200 -> 2200`, zero rewards và `SUMMON_RESULT_TIMEOUT`.
+- Screenshot: Hero Summon, Empty Result và số gems sau thao tác.
+- Historical duplicate: `BUG-201`, cùng action/error/symptom, build range `1.2.5-1.2.7`.
 - Expected action: `MarkDuplicate`; không tạo ticket mới.
 
 #### Hard negatives bắt buộc
 
-- Wording giống nhưng exception/stack khác.
-- Signature giống một phần nhưng boss/scene khác.
+- Wording giống nhưng error code/resource outcome khác.
+- Cùng Hero Summon nhưng rewards vẫn được cấp hoặc chỉ animation bị treo.
 - Cùng feature nhưng khác platform/build ngoài affected range.
 - Report thiếu evidence nên kết quả phải là `InsufficientEvidence`.
 
@@ -458,7 +458,7 @@ WP03, WP04 và WP07 có thể chạy song song sau khi WP02 hoàn thành.
 - [ ] File constraints và idempotency behavior đã chốt.
 - [ ] BugReport aggregate/state/invariants đủ để viết test.
 - [ ] Logical schema cho `bug_reports`, `attachments`, `idempotency_requests`, `audit_events` đã review.
-- [ ] Golden case có report, log, screenshot và `BUG-142`.
+- [ ] Golden case có report, log, screenshot và `BUG-201`.
 - [ ] Ground truth có tuning/held-out split, hard negatives và source labels.
 - [ ] JSON/OpenAPI validation chạy xanh.
 - [ ] Contract tests chứng minh DTO backend, OpenAPI examples và JSON schemas thống nhất.

@@ -15,7 +15,7 @@ namespace GameBug.Infrastructure.Parsing;
 public class GenericCrashLogParser : ILogEvidenceExtractor
 {
     private static readonly Regex BuildRegex = new(
-        @"\b(?:build|version|ver)\b\s*[:=]\s*([a-zA-Z0-9.-]+)",
+        @"\b(?:build(?:version)?|version|ver)\b\s*[:=]\s*([a-zA-Z0-9.-]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex PlatformRegex = new(
@@ -33,6 +33,10 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
     private static readonly Regex TimestampRegex = new(
         @"^\[?(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:?\d{2}|Z)?)\]?",
         RegexOptions.Compiled);
+
+    private static readonly Regex KeyValueRegex = new(
+        @"\b(?<key>LogFormat|Screen|Action|ResourceType|CurrencyType|ResourceBefore|CurrencyBefore|ResourceAfter|CurrencyAfter|ExpectedRewardCount|ReceivedRewardCount|ServerResponse|ErrorCode)\s*=\s*(?<value>[^\s]+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public async Task<ParsedLogResult> ExtractAsync(Stream logStream, CancellationToken cancellationToken)
     {
@@ -54,6 +58,16 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
         const int MaxLogCharsLimit = 2 * 1024 * 1024; // 2 MB of characters
         int totalCharsRead = 0;
         bool isCapturingExceptionMessage = false;
+        string? formatVersion = null;
+        string? screen = null;
+        string? action = null;
+        string? resourceType = null;
+        decimal? resourceBefore = null;
+        decimal? resourceAfter = null;
+        int? expectedRewardCount = null;
+        int? receivedRewardCount = null;
+        string? serverResponse = null;
+        string? errorCode = null;
 
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
@@ -62,6 +76,30 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
             if (totalCharsRead > MaxLogCharsLimit)
             {
                 break;
+            }
+
+            bool hasGameplayFields = false;
+            foreach (Match field in KeyValueRegex.Matches(line))
+            {
+                string key = field.Groups["key"].Value.ToLowerInvariant();
+                hasGameplayFields |= key != "logformat";
+                string value = field.Groups["value"].Value.Trim().TrimEnd(',', ';');
+                switch (key)
+                {
+                    case "logformat": formatVersion ??= value; break;
+                    case "screen": screen ??= value; break;
+                    case "action": action ??= value; break;
+                    case "resourcetype":
+                    case "currencytype": resourceType ??= value; break;
+                    case "resourcebefore":
+                    case "currencybefore": if (decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var before)) resourceBefore ??= before; break;
+                    case "resourceafter":
+                    case "currencyafter": if (decimal.TryParse(value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var after)) resourceAfter = after; break;
+                    case "expectedrewardcount": if (int.TryParse(value, out var expected)) expectedRewardCount = expected; break;
+                    case "receivedrewardcount": if (int.TryParse(value, out var received)) receivedRewardCount = received; break;
+                    case "serverresponse": serverResponse = value; break;
+                    case "errorcode": errorCode = value; break;
+                }
             }
 
             // 1. Detect Build Version
@@ -123,7 +161,7 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
             }
 
             // 5. Detect Timeline/Game events
-            if (!isStackFrame && (line.Contains("[GameEvent]") || line.Contains("[Timeline]") || line.Contains("[INFO]") || line.Contains("[WARN]") ||
+            if (!isStackFrame && (hasGameplayFields || line.Contains("[GameEvent]") || line.Contains("[Timeline]") || line.Contains("[INFO]") || line.Contains("[WARN]") ||
                 line.Contains("Player") || line.Contains("entered") || line.Contains("clicked") || line.Contains("cast")))
             {
                 DateTimeOffset? timestamp = null;
@@ -190,7 +228,10 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
             buildVersion,
             platform,
             timelineEvents,
-            stackSignature);
+            stackSignature,
+            new GameplayLogFacts(
+                formatVersion, screen, action, resourceType, resourceBefore, resourceAfter,
+                expectedRewardCount, receivedRewardCount, serverResponse, errorCode));
     }
 
     private static Encoding DetectEncoding(Stream stream)

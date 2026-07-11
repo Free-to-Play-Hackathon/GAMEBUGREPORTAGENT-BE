@@ -35,7 +35,8 @@ public sealed class StartAnalysisHandlerTests
         currentUser.IsAuthenticated.Returns(true);
         currentUser.UserId.Returns("owner");
         idempotency.TryAddAsync(Arg.Any<IdempotencyRecord>(), Arg.Any<CancellationToken>()).Returns(true, false);
-        sender.Send(Arg.Any<ProcessAnalysisCommand>(), Arg.Any<CancellationToken>()).Returns(Result.Success());
+        sender.Send(Arg.Any<ProcessAnalysisCommand>(), Arg.Any<CancellationToken>()).Returns(
+            Result.Failure(new DomainError("PROVIDER_TIMEOUT", "Provider timed out.")));
 
         IdempotencyRecord? completed = null;
         AnalysisRun? createdRun = null;

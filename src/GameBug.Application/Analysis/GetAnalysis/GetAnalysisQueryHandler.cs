@@ -34,14 +34,9 @@ public sealed class GetAnalysisQueryHandler : IRequestHandler<GetAnalysisQuery, 
             return NotFound();
         }
 
-        string? stage = run.Stage?.ToString();
-        if (run.Status is AnalysisStatus.Completed or AnalysisStatus.CompletedWithWarnings)
-        {
-            stage = AnalysisStage.PersistingResult.ToString();
-        }
-
         return new GetAnalysisResult(
-            run.Id.Value, run.ReportId.Value, run.Version, run.Status.ToString(), stage, Progress(run),
+            run.Id.Value, run.ReportId.Value, run.Version, ToLowerCamel(run.Status),
+            run.Stage is null ? null : ToLowerCamel(run.Stage.Value), Progress(run),
             run.StartedAt, run.CompletedAt,
             run.Warnings.Select(warning => new WarningResult(warning.Code, warning.Message)).ToList(),
             run.ErrorCode);
@@ -64,4 +59,10 @@ public sealed class GetAnalysisQueryHandler : IRequestHandler<GetAnalysisQuery, 
             _ => 10
         }
     };
+
+    private static string ToLowerCamel<T>(T value) where T : struct, Enum
+    {
+        string text = value.ToString();
+        return char.ToLowerInvariant(text[0]) + text[1..];
+    }
 }

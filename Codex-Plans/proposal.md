@@ -35,7 +35,7 @@ Sản phẩm không phải chatbot viết lại bug report. Giá trị cốt lõ
 
 Player thường mô tả lỗi bằng ngôn ngữ tự nhiên ngắn và thiếu context, ví dụ:
 
-> "Crash sau boss rồng lúc dùng ulti Mage."
+> "Quay 10 lần, gems bị trừ nhưng không nhận được hero."
 
 Để xử lý report này, QA phải tự tìm:
 
@@ -347,9 +347,9 @@ Blocking violation override numeric quality score. Query có thể trả allowed
 
 ```json
 {
-  "title": "Crash during Dragon King phase 2 when Mage uses Fire Ultimate",
+  "title": "Ten-pull consumes gems but returns no heroes",
   "build": {
-    "value": "1.4.12",
+    "value": "1.2.7",
     "status": "supported",
     "sourceIds": ["fact-build"]
   },
@@ -360,25 +360,25 @@ Blocking violation override numeric quality score. Query có thể trả allowed
   },
   "severityEstimate": {
     "level": "high",
-    "reason": "Client crash interrupts the current session",
+    "reason": "Paid currency is consumed without granting the expected rewards",
     "confidence": 0.82
   },
   "preconditions": [],
   "reproSteps": [
     {
       "order": 1,
-      "text": "Enter Dragon Cave.",
+      "text": "Open Hero Summon.",
       "type": "confirmed",
       "status": "supported",
-      "sourceIds": ["fact-scene"]
+      "sourceIds": ["fact-screen"]
     },
     {
       "order": 2,
-      "text": "Reach Dragon King phase 2.",
+      "text": "Select Ten Pull and confirm the summon.",
       "type": "suggestedToVerify",
       "status": "inferred",
-      "sourceIds": ["fact-boss-phase"],
-      "inferenceReason": "The log and screenshot show phase 2 context but not the full transition sequence."
+      "sourceIds": ["fact-action"],
+      "inferenceReason": "The report and log identify Ten Pull, but do not prove every UI interaction before confirmation."
     }
   ],
   "expectedResult": {},
@@ -518,16 +518,18 @@ Vision OFF hoặc provider failure phải giữ text/log baseline. Screenshot si
 
 ### 15.1 Synthetic game universe
 
-Mặc định: `Shadow Arena Mobile`.
+Mặc định: `Dragon Kingdom`.
 
 | Entity type | Examples |
 |---|---|
-| Maps | Dragon Cave, Frozen Temple, PvP Arena |
-| Bosses | Dragon King, Ice Witch, Mecha Golem |
-| Characters | Mage, Warrior, Archer |
-| Skills | Fire Ultimate, Dash Strike, Ice Arrow |
-| Builds | 1.4.10, 1.4.11, 1.4.12, 1.5.0-beta |
-| Platforms | Android, iOS, Windows |
+| Screens | Kingdom Home, Hero Summon, Hero Detail, Building Upgrade, World Map, Alliance Battle |
+| Buildings | Castle, Barracks, Academy |
+| Heroes | Các hero nằm trong phạm vi demo và có canonical ID ổn định |
+| Resources | Gems, Gold, Wood, Food |
+| Actions | Ten Pull, Upgrade, March, Join Battle |
+| UI states/errors | Loading, Empty Result, Timeout, Connection Lost, Server Timeout |
+| Builds | 1.2.5, 1.2.6, 1.2.7 |
+| Platforms | Android, iOS |
 
 ### 15.2 Minimum dataset
 
@@ -556,11 +558,11 @@ Mỗi benchmark case có:
 
 | Source | Value |
 |---|---|
-| Report | Crash sau boss rồng khi dùng ulti Mage |
-| Log | Build 1.4.12, Android 14, Samsung S22, NullReferenceException, DragonBossController.OnPhaseTwo line 219 |
-| Screenshot | Dragon Cave, Dragon King phase 2, Mage state |
-| Historical ticket | BUG-142, same signature/phase, build 1.4.10-1.4.12 |
-| Expected decision | MarkDuplicate BUG-142; zero new tickets |
+| Report | Quay 10 lần, gems đã bị trừ nhưng không nhận được hero |
+| Log | Build 1.2.7, Android 14, Samsung S22, TenPull, gems 5200 → 2200, zero rewards, `SUMMON_RESULT_TIMEOUT` |
+| Screenshot | Hero Summon, Empty Result, gems đã bị trừ |
+| Historical ticket | BUG-201, cùng action/error/symptom, build 1.2.5-1.2.7 |
+| Expected decision | MarkDuplicate BUG-201; zero new tickets |
 
 ## 16. Security và Privacy
 
@@ -684,7 +686,7 @@ Chi tiết triển khai nằm tại [phases/README.md](phases/README.md).
 | [1 - Intake Foundation](phases/phase-1-intake-foundation.md) | Solution, DB, object storage, Create/Get report | Upload/read/idempotency/architecture tests xanh |
 | [2 - Text/Log Happy Path](phases/phase-2-text-log-happy-path.md) | Sanitizer, parser, evidence, repro AI, sync orchestration | Golden report/log sinh valid persisted repro |
 | [3 - Async Pipeline](phases/phase-3-async-pipeline.md) | Worker, durable queue, outbox, checkpoints, retry | Restart/disconnect/duplicate delivery an toàn |
-| [4 - Duplicate Intelligence](phases/phase-4-duplicate-intelligence.md) | Ticket import, pgvector/full-text/exact, scoring/reranking | BUG-142 top 3; hard negatives an toàn |
+| [4 - Duplicate Intelligence](phases/phase-4-duplicate-intelligence.md) | Ticket import, pgvector/full-text/exact, scoring/reranking | BUG-201 top 3; hard negatives an toàn |
 | [5 - QA Workflow](phases/phase-5-qa-workflow.md) | Review, revision, duplicate gate, clarification, mock filing | Duplicate gate không bypass; decisions idempotent |
 | [6 - Trust Features](phases/phase-6-trust-features.md) | Source groups, trust policy, provenance/quality/partial results | Không unsupported confirmed output |
 | [7 - Optional Vision](phases/phase-7-optional-vision.md) | Safe image pipeline, visual facts, trust/ranker integration | Vision OFF/failure không phá core flow |

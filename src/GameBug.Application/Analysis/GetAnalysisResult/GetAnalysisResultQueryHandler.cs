@@ -38,6 +38,11 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
             return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.NotFound", "The analysis run was not found."));
         }
 
+        if (run.Status == AnalysisStatus.Failed)
+        {
+            return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.Failed", "The analysis failed and has no validated result."));
+        }
+
         if (run.Status is not AnalysisStatus.Completed and not AnalysisStatus.CompletedWithWarnings)
         {
             return Result.Failure<GetAnalysisResultDetails>(new DomainError("Analysis.ResultNotReady", "The analysis result is not ready."));
@@ -55,17 +60,17 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
                 f.Id,
                 f.FactType,
                 f.NormalizedValue,
-                f.Status.ToString(),
+                ToLowerCamel(f.Status),
                 f.Confidence,
                 f.Sources.Select(s => new EvidenceSourceDto(
                     s.Id,
-                    s.SourceType.ToString(),
+                    ToLowerCamel(s.SourceType),
                     s.SourceRef,
                     s.LineStart,
                     s.LineEnd,
                     s.SanitizedExcerpt,
                     s.ExcerptHash,
-                    s.TrustLevel.ToString()
+                    ToLowerCamel(s.TrustLevel)
                 )).ToList()
             )).ToList();
 
@@ -94,13 +99,13 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
                     s.Id,
                     s.Order,
                     s.Description,
-                    s.StepType.ToString(),
+                    ToLowerCamel(s.StepType),
                     s.SourceId,
                     s.InferenceReason
                 )).ToList(),
                 reproCase.ExpectedResult,
                 reproCase.ActualResult,
-                reproCase.SeverityEstimate.ToString(),
+                ToLowerCamel(reproCase.SeverityEstimate),
                 reproCase.SeverityReason,
                 reproCase.MissingInformation,
                 reproCase.Confidence.Value
@@ -129,5 +134,11 @@ public class GetAnalysisResultQueryHandler : IRequestHandler<GetAnalysisResultQu
                 promptVersion, modelProvider, modelName));
 
         return result;
+    }
+
+    private static string ToLowerCamel<T>(T value) where T : struct, Enum
+    {
+        string text = value.ToString();
+        return char.ToLowerInvariant(text[0]) + text[1..];
     }
 }

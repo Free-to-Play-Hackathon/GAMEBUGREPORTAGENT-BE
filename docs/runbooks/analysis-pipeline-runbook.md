@@ -22,7 +22,7 @@ All structured logs emit the following contextual properties:
 - `AnalysisRunId`: Unique identifier of the execution run.
 - `BugReportId`: The source bug report being analyzed.
 - `Stage`: The current executing phase (e.g., `Sanitization`, `LogExtraction`, `ContextResolution`, `NormalizeBugReport`, `ReproSynthesis`).
-- `Provider`: The AI provider resolved (e.g., `Gemini`).
+- `Provider`: The AI provider resolved (`OpenAI` for the Phase 2 routes).
 - `Model`: The AI model version resolved.
 
 ---

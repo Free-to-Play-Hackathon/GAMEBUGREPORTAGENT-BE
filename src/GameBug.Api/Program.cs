@@ -44,7 +44,8 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 
-builder.Services.AddOpenApi();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
@@ -59,13 +60,34 @@ app.UseRateLimiter();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "Game Bug Repro Agent API v1");
+        options.RoutePrefix = "swagger";
+        options.DocumentTitle = "Game Bug Repro Agent API";
+        options.DisplayRequestDuration();
+    });
 }
 
 app.UseHttpsRedirection();
 app.MapCreateBugReport();
 app.MapGetBugReport();
 app.MapAnalysisEndpoints();
+
+app.MapGet("/", (IHostEnvironment environment) => Results.Ok(new
+{
+    Name = "Game Bug Repro Agent API",
+    Status = "Running",
+    Environment = environment.EnvironmentName,
+    Health = new
+    {
+        Live = "/health/live",
+        Ready = "/health/ready"
+    },
+    Swagger = environment.IsDevelopment() ? "/swagger" : null,
+    OpenApi = environment.IsDevelopment() ? "/swagger/v1/swagger.json" : null
+}));
 
 app.MapGet("/health/live", () => Results.Ok(new { Status = "Healthy" }));
 app.MapGet("/health/ready", async (

@@ -60,9 +60,9 @@ Vision không phải dependency của core pipeline. Khi disabled, ảnh không 
   "imageHeight": 1080,
   "visibleEntities": [
     {
-      "entityType": "boss",
-      "rawLabel": "Dragon King",
-      "canonicalEntityId": "boss-dragon-king",
+      "entityType": "screen",
+      "rawLabel": "Hero Summon",
+      "canonicalEntityId": "screen-hero-summon",
       "confidence": 0.94,
       "region": { "x": 0.42, "y": 0.12, "width": 0.31, "height": 0.45 }
     }
@@ -76,16 +76,16 @@ Vision không phải dependency của core pipeline. Khi disabled, ảnh không 
   ],
   "sceneCandidates": [
     {
-      "rawLabel": "Dragon Cave",
-      "canonicalEntityId": "map-dragon-cave",
+      "rawLabel": "Hero Summon",
+      "canonicalEntityId": "screen-hero-summon",
       "confidence": 0.90,
       "region": null
     }
   ],
   "visibleState": [
     {
-      "type": "bossPhase",
-      "value": "phase2",
+      "type": "resultState",
+      "value": "emptyResult",
       "confidence": 0.78,
       "region": { "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }
     }
@@ -464,7 +464,7 @@ Tests:
 
 - Decode/security fixtures WP03-05.
 - Provider valid/invalid JSON/region/entity/timeout/privacy block.
-- Golden screenshot nhận Dragon Cave/Dragon King/Mage state theo expected labels.
+- Golden screenshot nhận Hero Summon/Empty Result/visible gems theo expected labels.
 - Blurry/unrelated image -> Unknown/empty, không đoán.
 - Screenshot/log conflict giữ precedence/conflict record.
 - Provider disabled/fail -> text/log baseline vẫn usable.
@@ -570,7 +570,7 @@ Logs chỉ chứa IDs, dimensions, hashes rút gọn, versions, counts và safe 
 ## 15. Demo checkpoint cuối Phase 7
 
 1. Chạy golden case với Vision OFF và lưu baseline result/metrics.
-2. Bật Vision, xử lý screenshot Dragon Cave/Dragon King/Mage.
+2. Bật Vision, xử lý screenshot Hero Summon/Empty Result/visible gems.
 3. Xác nhận visual facts có normalized regions, canonical entity IDs và source refs.
 4. Corroborate scene/phase với log/report theo source-group policy.
 5. Chạy screenshot conflict và xác nhận không override log.

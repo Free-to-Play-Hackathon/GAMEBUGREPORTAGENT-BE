@@ -27,7 +27,7 @@ Kết quả không tự động đánh dấu report là duplicate. Backend chỉ
 - PostgreSQL đã bật pgvector extension.
 - Phase 0 có 30-50 historical tickets, 8-12 duplicate families, tuning/held-out split và hard negatives.
 - Embedding provider/configuration có dimension cố định và version rõ ràng.
-- Golden case `BUG-142` có ground truth hoàn chỉnh.
+- Golden case `BUG-201` có ground truth hoàn chỉnh.
 
 ## 3. Phạm vi
 
@@ -59,7 +59,7 @@ Kết quả không tự động đánh dấu report là duplicate. Backend chỉ
 {
   "duplicateCandidates": [
     {
-      "ticketId": "BUG-142",
+      "ticketId": "BUG-201",
       "rank": 1,
       "score": 0.91,
       "classification": "likelyDuplicate",
@@ -527,7 +527,7 @@ Tests:
 - Signal calculators và hard rules.
 - Reranker invalid ticket/signal/JSON/timeout fallback.
 - Worker retry/checkpoint/duplicate delivery.
-- Golden `BUG-142` top 3 và hard-negative regressions.
+- Golden `BUG-201` top 3 và hard-negative regressions.
 
 Metrics/logs:
 
@@ -614,7 +614,7 @@ Weights không âm, available weights có tổng > 0, threshold tăng hợp lệ
 1. Import seed historical tickets và chờ indexing hoàn tất.
 2. Xác nhận exact/full-text/vector channels trả candidate trên golden case.
 3. Chạy golden AnalysisRun qua `SearchingDuplicates`.
-4. `BUG-142` xuất hiện top 3, kỳ vọng top 1, với same signature/phase/build explanation.
+4. `BUG-201` xuất hiện top 3, kỳ vọng top 1, với cùng Ten Pull action, error code, missing-reward outcome và affected build range.
 5. Chạy same-wording/different-signature hard negative và xác nhận không `LikelyDuplicate`.
 6. Tắt reranker và xác nhận deterministic results vẫn usable.
 7. Bật Luna explanation rồi force ambiguity route sang Terra; ticket/signal references vẫn allowlist-valid và order không đổi.
@@ -634,4 +634,4 @@ Weights không âm, available weights có tổng > 0, threshold tăng hợp lệ
 
 ## 15. Exit gate chính thức
 
-Phase 4 chỉ đóng khi `BUG-142` nằm trong top 3, hard negatives không bị semantic similarity đẩy thành high-confidence duplicate, và benchmark có dataset/index/model/ranker versions đầy đủ. Đầu ra bàn giao Phase 5 là immutable candidate snapshot có thể dùng làm decision gate backend.
+Phase 4 chỉ đóng khi `BUG-201` nằm trong top 3, hard negatives không bị semantic similarity đẩy thành high-confidence duplicate, và benchmark có dataset/index/model/ranker versions đầy đủ. Đầu ra bàn giao Phase 5 là immutable candidate snapshot có thể dùng làm decision gate backend.

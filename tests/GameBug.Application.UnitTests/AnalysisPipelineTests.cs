@@ -96,6 +96,35 @@ Platform: iOS
     }
 
     [Fact]
+    public async Task GenericCrashLogParser_ShouldParseDragonKingdomGameplayFacts()
+    {
+        const string logContent = """
+            LogFormat=dragon-kingdom-log-v1
+            BuildVersion=1.2.7
+            Platform=Android
+            [2026-07-11T14:02:18+07:00] [GameEvent] Screen=HeroSummon Action=TenPull CurrencyType=Gems CurrencyBefore=5200
+            [2026-07-11T14:02:19+07:00] [WARN] CurrencyAfter=2200 ExpectedRewardCount=10 ReceivedRewardCount=0 ServerResponse=Timeout ErrorCode=SUMMON_RESULT_TIMEOUT
+            """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(logContent));
+
+        var result = await new GenericCrashLogParser().ExtractAsync(stream, CancellationToken.None);
+
+        result.BuildVersion.Should().Be("1.2.7");
+        result.Platform.Should().Be("Android");
+        result.StackSignature.Should().BeNull();
+        result.GameplayFacts.Should().NotBeNull();
+        result.GameplayFacts!.FormatVersion.Should().Be("dragon-kingdom-log-v1");
+        result.GameplayFacts.Screen.Should().Be("HeroSummon");
+        result.GameplayFacts.Action.Should().Be("TenPull");
+        result.GameplayFacts.ResourceBefore.Should().Be(5200);
+        result.GameplayFacts.ResourceAfter.Should().Be(2200);
+        result.GameplayFacts.ExpectedRewardCount.Should().Be(10);
+        result.GameplayFacts.ReceivedRewardCount.Should().Be(0);
+        result.GameplayFacts.ErrorCode.Should().Be("SUMMON_RESULT_TIMEOUT");
+        result.TimelineEvents.Should().HaveCount(2);
+    }
+
+    [Fact]
     public void SeverityPolicy_ShouldApplyHighBaseline_WhenSupportedCrashIsPresent()
     {
         // Arrange
@@ -167,7 +196,7 @@ Platform: iOS
         contextRepository.GetExpectedBehaviorsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<ExpectedBehavior>());
 
-        // Mock Gemini response matching the JSON schema
+        // Mock OpenAI structured response matching the JSON schema
         string mockLlmResponse = @"{
             ""title"": ""Android crash on opening Store"",
             ""buildVersion"": ""1.0.0"",

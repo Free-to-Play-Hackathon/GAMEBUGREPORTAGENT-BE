@@ -5,7 +5,7 @@
 Phase 2 hoàn thành vertical slice phân tích backend đầu tiên:
 
 ```text
-BugReport + log attachment
+BugReport + zero or more text/log attachments
   -> tạo AnalysisRun version 1
   -> đọc nội dung an toàn từ object storage
   -> sanitize/redact
@@ -23,7 +23,7 @@ Trong phase này pipeline chạy synchronous trong process API qua một executi
 
 - Phase 0 contract/schema/golden data đã validate.
 - Phase 1 Create/Get report, PostgreSQL và object storage chạy ổn định.
-- Golden report, crash log và expected facts có ID ổn định.
+- Golden report, gameplay/error log và expected facts có ID ổn định.
 - Backend có configured AI provider credential trong local secret store; không commit secret.
 - `IObjectStorage` hỗ trợ mở read stream theo attachment reference.
 
@@ -81,7 +81,9 @@ Response giữ `202 Accepted` để không đổi contract khi sang Phase 3:
 }
 ```
 
-Ở Phase 2, response chỉ trả sau khi inline processing kết thúc. Đây là behavior local/prototype; timeout lớn không được xem là production-ready. Phase 3 sẽ trả cùng shape ngay khi status `queued`.
+Ở Phase 2, response chỉ trả sau khi inline processing kết thúc. Khi AnalysisRun đã được tạo, POST luôn trả `202` với analysis identity và terminal status (`completed`, `completedWithWarnings` hoặc `failed`); lỗi provider sau thời điểm tạo run được đọc qua GET status, không đổi POST thành provider-specific HTTP error. Validation/auth/not-found/idempotency conflict xảy ra trước khi tạo run vẫn trả Problem Details tương ứng. Đây là behavior local/prototype; client disconnect có thể hủy inline execution và không phải durability guarantee. Phase 3 sẽ trả cùng shape ngay khi status `queued`.
+
+Public enum serialization dùng lower camel case và được khóa bằng contract snapshot: `completedWithWarnings`, `persistingResult`... Domain/DB vẫn dùng enum typed/PascalCase nội bộ.
 
 ### GET `/api/v1/analyses/{analysisId}`
 
@@ -93,7 +95,7 @@ Trả summary:
   "reportId": "019...",
   "version": 1,
   "status": "completed",
-  "stage": "persistingResult",
+  "stage": null,
   "progressPercent": 100,
   "warnings": [],
   "startedAt": "2026-07-11T06:10:00Z",
@@ -101,10 +103,13 @@ Trả summary:
 }
 ```
 
+`stage` là current stage và phải `null` khi run ở terminal status. Nếu về sau cần hiển thị stage cuối, thêm field versioned `lastCompletedStage`; không giả lập current stage là `persistingResult` sau khi run đã completed.
+
 ### GET `/api/v1/analyses/{analysisId}/result`
 
 - `200` khi đã có result.
-- `409 ANALYSIS_RESULT_NOT_READY` nếu run chưa đủ điều kiện đọc.
+- `409 ANALYSIS_RESULT_NOT_READY` nếu run ở `received`/`processing`.
+- `409 ANALYSIS_FAILED` nếu run đã `failed`; response chỉ chứa safe run error code, không provider payload.
 - `404` nếu không tồn tại/không có quyền.
 - Không trả sanitized full log, raw model response, provider request payload hoặc internal storage key.
 
@@ -343,6 +348,8 @@ Unique execution identity/idempotency guard phải ngăn duplicate persistence n
 Mở rộng storage port để đọc attachment stream mà không lộ provider SDK. Reader phải:
 
 - Chỉ cho phép attachment thuộc report/run đang xử lý.
+- Enumerate toàn bộ text/log attachments theo attachment ID ổn định; không dùng `FirstOrDefault` rồi âm thầm bỏ qua các log còn lại.
+- Mỗi attachment có source reference và warning/error độc lập; một attachment đọc lỗi không được làm mất evidence hợp lệ từ attachment khác, trừ security/integrity/sanitizer failure.
 - Verify stored metadata/checksum khi cần.
 - Enforce maximum bytes lần hai khi đọc.
 - Detect BOM/UTF-8/UTF-16; invalid bytes được thay/flag theo policy.
@@ -387,7 +394,7 @@ Quy tắc:
 - False positive có test fixture; không redact exception/frame cần cho signature.
 - Sanitizer failure là permanent stage error, không gửi raw content tiếp.
 
-### P2-WP05 - Generic crash-log parser
+### P2-WP05 - Generic gameplay/error-log parser
 
 **Owner:** Parsing Backend  
 **Phụ thuộc:** P2-WP03, WP04
@@ -401,7 +408,10 @@ Parser deterministic-first phải trích xuất:
 - Stack frames: namespace/class/method/file/line khi có.
 - Error code.
 - Scene/map/entity/event keywords từ bounded catalog.
+- Action/transaction fields trong allowlist của synthetic Dragon Kingdom format: screen, action, resource type, resource before/after, expected/received reward count và server response.
 - Các event trước crash để tạo timeline.
+
+Parser không giả định mọi log đều là crash log. Transaction/error log không có exception vẫn có thể tạo evidence và timeline; stack signature chỉ được tạo khi có exception + stable frames hợp lệ. Format golden Dragon Kingdom phải có version (`dragon-kingdom-log-v1`) và fixture riêng để tránh parser vô tình phụ thuộc wording.
 
 Stack signature normalization:
 
@@ -415,13 +425,14 @@ Parser trả `ParseResult` gồm facts, timeline candidates, warnings, parser/ve
 
 Fixture tối thiểu:
 
-- Golden Unity-like/structured log.
+- Golden Dragon Kingdom structured gameplay/error log.
+- Unity-like crash log để giữ generic crash compatibility.
 - Log thiếu build/platform.
 - UTF-16 và malformed encoding.
 - Multiline exception.
 - Repeated/noisy stack frames.
 - Log bị truncate.
-- Log không phải crash.
+- Log không phải crash nhưng có transaction/error facts.
 - File gần size limit.
 
 ### P2-WP06 - Report fact extraction và precedence
@@ -434,8 +445,8 @@ Facts từ structured metadata, report text và log được merge theo preceden
 | Fact | Cao -> thấp |
 |---|---|
 | Build/platform | trusted metadata -> log -> structured report field -> free text |
-| Action trước crash | log timeline -> player report -> inference |
-| Actual result | crash/exception log -> player report |
+| Action trước lỗi | log timeline -> player report -> inference |
+| Actual result | observed log outcome/error -> player report |
 | Expected result | game catalog -> accepted rule -> unknown |
 
 Behavior:
@@ -527,10 +538,12 @@ public sealed record AiRoute(
     string RoutingPolicyVersion);
 ```
 
-Phase 2 có hai AI executions tách schema:
+Phase 2 có hai OpenAI executions tách schema:
 
-1. `NormalizeBugReport` dùng profile `report-understanding` (`gpt-5.6-luna`) để chuẩn hóa symptom/action/context còn mơ hồ; không parse log và không được tạo source ID.
-2. `SynthesizeReproCase` dùng profile `repro-synthesis` (`gpt-5.6-terra`) trên normalized report + evidence deterministic.
+1. `NormalizeBugReport` dùng provider `OpenAI`, profile `report-understanding`, model `gpt-5.6-luna` để chuẩn hóa symptom/action/context còn mơ hồ; không parse log và không được tạo source ID.
+2. `SynthesizeReproCase` dùng provider `OpenAI`, profile `repro-synthesis`, model `gpt-5.6-terra` trên normalized report + evidence deterministic.
+
+Adapter Phase 2 dùng OpenAI Responses API với Structured Outputs/JSON Schema. Luna/Terra là model ID trong route, không phải provider name. Production/demo thật phải fail startup nếu route dùng OpenAI nhưng thiếu API key; giá trị `mock` chỉ được phép trong Development/Testing và mọi benchmark phải ghi rõ provider execution là mock hay real.
 
 Nếu Luna fail/invalid, pipeline vẫn có thể dùng deterministic report facts và ghi warning. Nếu Terra fail/invalid sau bounded repair, không tạo fabricated `ReproCase`. Sol chưa tự động chạy trong Phase 2; escalation được thêm ở Phase 6 sau khi có quality gate và cost controls.
 
@@ -622,13 +635,14 @@ Transaction rule:
 
 Idempotency:
 
-- Identity active run = report ID + configuration/input hash.
+- Identity active run = report ID + input hash + configuration hash.
 - Same key + same request trả cùng analysis ID.
-- Same report/config đang active không tạo run mới.
+- Same key + khác canonical request hash trả `409 IDEMPOTENCY_KEY_REUSED`.
+- Khác key nhưng cùng report/input/config đang active trả existing analysis identity với `202`; không tạo run mới và không dùng `ANALYSIS_ALREADY_RUNNING` cho trường hợp có thể replay an toàn.
 - Reprocess với config version mới tạo run version tiếp theo.
 - Active-run/config hash phải gồm routing-policy version và route của từng AI task, không chỉ một global model name.
 
-Configuration Phase 2 phải validate `Ai:Routes:ReportUnderstanding` và `Ai:Routes:ReproSynthesis`, gồm provider/model/prompt/schema/timeout/max-output. API key nằm trong secret store. Metadata ghi model thực tế từ gateway result; tuyệt đối không ghi chuỗi hardcode như `gemini-1.5-flash` hoặc `gpt-5.6-terra` trong handler.
+Configuration canonical của Phase 2 là `Ai:Routes:ReportUnderstanding`, `Ai:Routes:ReproSynthesis` và `Ai:OpenAI`, trong đó route gồm provider/model/prompt/schema/timeout/max-output còn provider section chỉ gồm API key/base URL/provider timeout. API key nằm trong secret store hoặc environment variable `Ai__OpenAI__ApiKey`. Metadata ghi requested/resolved model thực tế từ gateway result; tuyệt đối không hardcode model trong handler. Implementation/config hiện có phải được migrate về namespace canonical này trước khi đóng Phase 2.
 
 ### P2-WP13 - Analysis endpoints và error mapping
 
@@ -639,16 +653,18 @@ Implement Start/GetStatus/GetResult endpoints. Endpoint chỉ map HTTP, authoriz
 
 Error catalog bổ sung:
 
-| Code | HTTP | Retryable | Khi dùng |
-|---|---:|---:|---|
-| `ANALYSIS_ALREADY_RUNNING` | 409 | false | Active run cùng config |
+| Code | HTTP/surface | Retryable | Khi dùng |
+|---|---|---:|---|
 | `ANALYSIS_RESULT_NOT_READY` | 409 | true | Result chưa hoàn tất |
-| `NO_SUPPORTED_LOG_CONTENT` | 422 | false | Không có text có thể xử lý theo policy |
-| `SANITIZATION_FAILED` | 500/422 | false | Không bảo đảm input an toàn |
-| `PROVIDER_TIMEOUT` | 503 | true | AI timeout |
-| `PROVIDER_AUTH_FAILURE` | 503 | false | Server config/credential lỗi |
-| `INVALID_AI_SCHEMA` | 502 | false | Output không validate sau repair policy |
-| `PROVENANCE_VALIDATION_FAILED` | 502 | false | Output dùng source không tồn tại |
+| `ANALYSIS_FAILED` | 409 | false | Run terminal failed và không có validated result |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | false | Cùng key nhưng canonical request hash khác |
+| `NO_SUPPORTED_TEXT_CONTENT` | 422 | false | Không có report text hoặc text/log attachment nào có thể xử lý theo policy |
+| `UNSAFE_INPUT_REJECTED` | 422 | false | Input cụ thể không thể sanitize an toàn theo policy |
+| `SANITIZER_FAILURE` | 500 | false | Sanitizer nội bộ lỗi, không thể bảo đảm input an toàn |
+| `PROVIDER_TIMEOUT` | run failed | true | AI timeout; ghi trên run sau khi run đã được tạo |
+| `PROVIDER_AUTH_FAILURE` | startup/failed run | false | Server config/credential lỗi |
+| `INVALID_AI_SCHEMA` | run failed | false | Output không validate sau repair policy |
+| `PROVENANCE_VALIDATION_FAILED` | run failed | false | Output dùng source không tồn tại |
 
 Response không chứa provider raw error hoặc sanitized full input.
 
@@ -685,16 +701,16 @@ Response không chứa provider raw error hoặc sanitized full input.
 #### Integration/contract tests
 
 - Repository round-trip toàn evidence/repro graph.
-- Provider recorded responses validate schema/mapping.
+- OpenAI Responses API recorded fixtures validate request shape, Structured Outputs schema, `output_text`, resolved model và hashed request ID mapping.
 - Prompt package version được load đúng và included trong metadata.
 - PostgreSQL migration/index/constraints.
 
 #### Functional tests
 
-- POST start analysis -> 202; GET status/result -> 200.
+- POST start analysis -> 202 với terminal status; GET status/result -> 200 khi có validated result.
 - Unknown/forbidden report.
 - Result not ready contract qua test double execution delay.
-- Stable Problem Details cho provider/schema errors.
+- Provider/schema failure sau khi tạo run -> POST vẫn 202 với `failed`; GET status có stable safe error code; GET result trả `409 ANALYSIS_FAILED`.
 - Golden endpoint result match approved snapshot, trừ IDs/timestamps/provider latency.
 
 ### P2-WP15 - Observability, security và runbook
@@ -768,14 +784,14 @@ Từ golden report đã tạo ở Phase 1:
 
 1. Gọi StartAnalysis với idempotency key mới.
 2. Backend sanitize report/log và ghi redaction summary an toàn.
-3. Parser trích đúng build `1.4.12`, Android 14, Samsung S22, exception và stable frame line 219.
+3. Parser trích đúng build `1.2.7`, Android 14, Samsung S22, action `TenPull`, resource delta, zero rewards và error code `SUMMON_RESULT_TIMEOUT`.
 4. Evidence resolver tạo source references hợp lệ.
 5. Repro generator trả structured JSON; deterministic validator không cho unsupported confirmed step.
 6. Execution metadata chứng minh normalization dùng resolved Luna route và repro dùng resolved Terra route; không có model metadata hardcode.
-7. GET status trả Completed; GET result trả evidence + repro + empty duplicate candidates.
+7. GET status trả `completed` với `stage: null`; GET result trả evidence + repro + empty duplicate candidates.
 8. Gọi lại cùng key/request trả cùng analysis ID.
 9. Làm Luna unavailable và xác nhận deterministic report-fact fallback vẫn cho phép Terra chạy với warning khi input đủ.
-10. Tắt/misconfigure Terra route và xác nhận run Failed với stable Problem Details, không fabricated result.
+10. Tắt/misconfigure Terra route và xác nhận POST trả analysis identity với status `failed`, GET status có safe error code, GET result trả `409 ANALYSIS_FAILED`, không fabricated result.
 
 Checkpoint phải có functional/regression test tự động.
 

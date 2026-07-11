@@ -103,7 +103,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
         try
         {
             // 1. Start processing
-            var routingContext = new AiRoutingContext("default", run.SchemaVersion);
+            var routingContext = new AiRoutingContext(request.ConfigurationProfile, run.SchemaVersion);
             var normalizationRoute = _aiTaskRouter.Resolve(AiTask.NormalizeBugReport, routingContext);
             var reproRoute = _aiTaskRouter.Resolve(AiTask.SynthesizeReproCase, routingContext);
             var startResult = run.StartProcessing(
@@ -130,18 +130,16 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             _logger.LogInformation("Analysis {RunId} transitioned to stage {Stage}", run.Id.Value, run.Stage);
 
-            string? logBuildVersion = null;
-            string? logPlatform = null;
-            string? exceptionType = null;
-            string? exceptionMessage = null;
-            string? stackSignatureHash = null;
+            var parsedLogs = new List<(ParsedLogResult Result, string SourceRef)>();
             var parsedEvents = new List<ParsedTimelineEvent>();
-            string logSourceRef = "";
 
-            var logAttachment = report.Attachments.FirstOrDefault(a => a.AttachmentType == AttachmentType.Log);
-            if (logAttachment != null)
+            var logAttachments = report.Attachments
+                .Where(a => a.AttachmentType == AttachmentType.Log)
+                .OrderBy(a => a.Id.Value)
+                .ToList();
+            foreach (var logAttachment in logAttachments)
             {
-                logSourceRef = logAttachment.Id.Value.ToString();
+                string sourceRef = logAttachment.Id.Value.ToString();
                 try
                 {
                     using var stream = await _storageReader.OpenReadAsync(
@@ -174,34 +172,48 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
 
                     sanitizedStream.Position = 0;
                     var parsedLog = await _logExtractor.ExtractAsync(sanitizedStream, cancellationToken);
-
-                    logBuildVersion = parsedLog.BuildVersion;
-                    logPlatform = parsedLog.Platform;
-                    exceptionType = parsedLog.ExceptionType;
-                    exceptionMessage = parsedLog.ExceptionMessage;
-                    stackSignatureHash = parsedLog.StackSignature?.Hash;
-                    parsedEvents.AddRange(parsedLog.TimelineEvents);
+                    parsedLogs.Add((parsedLog, sourceRef));
+                    parsedEvents.AddRange(parsedLog.TimelineEvents.Select(e => e with { SourceRef = sourceRef }));
                 }
-                catch (Exception ex)
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (IOException ex)
                 {
                     _logger.LogWarning(ex, "Failed to read or parse log attachment {AttachmentId}", logAttachment.Id.Value);
                     warnings.Add(new AnalysisWarning("Attachment.ReadFailed", "A log attachment could not be processed."));
                 }
             }
 
+            var primaryBuild = parsedLogs.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.Result.BuildVersion));
+            var primaryPlatform = parsedLogs.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.Result.Platform));
+            var primaryException = parsedLogs.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.Result.ExceptionType));
+            var primarySignature = parsedLogs.FirstOrDefault(x => x.Result.StackSignature is not null);
+            string coreSourceRef = primaryException.SourceRef
+                ?? primaryBuild.SourceRef
+                ?? primaryPlatform.SourceRef
+                ?? parsedLogs.FirstOrDefault().SourceRef
+                ?? report.Id.Value.ToString();
+
             var facts = _evidenceResolver.ResolveFacts(
                 report,
-                logBuildVersion,
-                logPlatform,
-                exceptionType,
-                exceptionMessage,
-                stackSignatureHash,
+                primaryBuild.Result?.BuildVersion,
+                primaryPlatform.Result?.Platform,
+                primaryException.Result?.ExceptionType,
+                primaryException.Result?.ExceptionMessage,
+                primarySignature.Result?.StackSignature?.Hash,
                 reportSourceRef: report.Id.Value.ToString(),
-                logSourceRef: logSourceRef,
+                logSourceRef: coreSourceRef,
                 sanitizedReportBuildVersion: report.BuildVersion is null ? null : _contentSanitizer.Sanitize(report.BuildVersion),
                 sanitizedReportPlatform: report.Platform is null ? null : _contentSanitizer.Sanitize(report.Platform));
 
-            var timeline = _timelineBuilder.BuildTimeline(parsedEvents, logSourceRef);
+            foreach (var parsedLog in parsedLogs)
+            {
+                _evidenceResolver.AppendGameplayFacts(facts, parsedLog.Result.GameplayFacts, parsedLog.SourceRef);
+            }
+
+            var timeline = _timelineBuilder.BuildTimeline(parsedEvents, coreSourceRef);
             var evidencePack = new EvidencePack(Guid.NewGuid(), run.Id, facts, timeline);
 
             // 4. Ground game context

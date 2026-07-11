@@ -108,7 +108,7 @@ public class AnalysisRunConfiguration : IEntityTypeConfiguration<AnalysisRun>
 
         // Unique constraint and indexes
         builder.HasIndex(x => new { x.ReportId, x.Version }).IsUnique();
-        builder.HasIndex(x => new { x.ReportId, x.ConfigurationHash })
+        builder.HasIndex(x => new { x.ReportId, x.InputHash, x.ConfigurationHash })
             .IsUnique()
             .HasFilter("status IN ('Received', 'Queued', 'Processing')");
         builder.HasIndex(x => new { x.Status, x.StartedAt });

@@ -30,7 +30,7 @@ public class EventTimelineBuilder
                 eventName: pe.EventName,
                 excerpt: pe.Excerpt,
                 excerptHash: excerptHash,
-                sourceRef: logSourceRef,
+                sourceRef: pe.SourceRef ?? logSourceRef,
                 sourceLine: pe.LineNumber
             ));
         }

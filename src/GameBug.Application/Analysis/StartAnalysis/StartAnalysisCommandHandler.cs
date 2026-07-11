@@ -74,7 +74,7 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
             var existing = await _idempotency.GetAsync(scopedKey, cancellationToken);
             if (existing is null || !existing.RequestHash.Equals(requestHash, StringComparison.OrdinalIgnoreCase))
             {
-                return Result.Failure<StartAnalysisResult>(new DomainError("Idempotency.Conflict", "The idempotency key was used for a different analysis request."));
+                return Result.Failure<StartAnalysisResult>(new DomainError("Idempotency.KeyReused", "The idempotency key was used for a different analysis request."));
             }
 
             if (existing.ReportId.HasValue)
@@ -91,11 +91,16 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
 
         try
         {
-            if (await _runs.HasActiveRunAsync(reportId, configurationHash, cancellationToken))
+            var activeRun = await _runs.GetActiveRunAsync(reportId, inputHash, configurationHash, cancellationToken);
+            if (activeRun is not null)
             {
-                await _idempotency.DeleteAsync(scopedKey, cancellationToken);
+                await _idempotency.UpdateAsync(reservation with
+                {
+                    Status = IdempotencyStatus.Completed,
+                    ReportId = activeRun.Id.Value
+                }, cancellationToken);
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
-                return Result.Failure<StartAnalysisResult>(new DomainError("Analysis.AlreadyInProgress", "An analysis with the same configuration is active."));
+                return ToResult(activeRun);
             }
 
             var latest = await _runs.GetLatestByReportIdAsync(reportId, cancellationToken);
@@ -118,11 +123,7 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
             }, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            var process = await _sender.Send(new ProcessAnalysisCommand(run.Id.Value), cancellationToken);
-            if (process.IsFailure)
-            {
-                return Result.Failure<StartAnalysisResult>(process.Error);
-            }
+            await _sender.Send(new ProcessAnalysisCommand(run.Id.Value, request.ConfigurationProfile), cancellationToken);
 
             return ToResult(run);
         }
@@ -141,7 +142,13 @@ public sealed class StartAnalysisCommandHandler : IRequestHandler<StartAnalysisC
         run.Id.Value,
         run.ReportId.Value,
         run.Version,
-        run.Status.ToString().ToLowerInvariant(),
+        ToLowerCamel(run.Status),
         $"/api/v1/analyses/{run.Id.Value}",
         $"/api/v1/analyses/{run.Id.Value}/result");
+
+    private static string ToLowerCamel(AnalysisStatus status)
+    {
+        string text = status.ToString();
+        return char.ToLowerInvariant(text[0]) + text[1..];
+    }
 }

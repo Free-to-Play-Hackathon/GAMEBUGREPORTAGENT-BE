@@ -6,7 +6,20 @@ public record ParsedTimelineEvent(
     DateTimeOffset? Timestamp,
     string EventName,
     string Excerpt,
-    int LineNumber);
+    int LineNumber,
+    string? SourceRef = null);
+
+public sealed record GameplayLogFacts(
+    string? FormatVersion,
+    string? Screen,
+    string? Action,
+    string? ResourceType,
+    decimal? ResourceBefore,
+    decimal? ResourceAfter,
+    int? ExpectedRewardCount,
+    int? ReceivedRewardCount,
+    string? ServerResponse,
+    string? ErrorCode);
 
 public record ParsedLogResult(
     string? ExceptionType,
@@ -15,7 +28,8 @@ public record ParsedLogResult(
     string? BuildVersion,
     string? Platform,
     List<ParsedTimelineEvent> TimelineEvents,
-    StackSignature? StackSignature);
+    StackSignature? StackSignature,
+    GameplayLogFacts? GameplayFacts = null);
 
 public interface ILogEvidenceExtractor
 {

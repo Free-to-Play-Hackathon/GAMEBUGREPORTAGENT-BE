@@ -78,4 +78,13 @@ public sealed class IntakeEndpointTests : IClassFixture<WebApplicationFactory<Pr
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
     }
+
+    [Fact]
+    public async Task SwaggerUi_ShouldBeAvailableInDevelopment()
+    {
+        using var response = await _client.GetAsync("/swagger/index.html");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("text/html");
+    }
 }

@@ -560,7 +560,7 @@ Không để benchmark jobs cạnh tranh làm hỏng demo queue; dùng queue nam
 - Implement behaviors mục 11.
 - Environment guard và explicit confirmation cho reset.
 - Idempotency/repeat-run tests.
-- Verify expected counts, golden report, `BUG-142`, catalog/index/manifest versions.
+- Verify expected counts, golden report, `BUG-201`, catalog/index/manifest versions.
 - Reindex resume/failure report.
 - Warmup không dùng held-out data.
 
@@ -636,7 +636,7 @@ Từ máy/runner không có data state:
 5. Start API/Worker và wait readiness.
 6. Submit golden report/assets.
 7. Run analysis đến AwaitingQaReview.
-8. Verify `BUG-142`, trust/vision behavior và MarkDuplicate.
+8. Verify `BUG-201`, trust/vision behavior và MarkDuplicate.
 9. Run evaluation manifest và verify metric artifact identity.
 10. Restart Worker/API và repeat idempotency checks.
 11. Stop/start without data loss.
@@ -760,7 +760,7 @@ Evaluation WP01-07 có thể chạy song song với deployment WP08-13 sau khi c
 1. Từ clean environment, migrate và seed bằng documented commands.
 2. Verify expected versions/counts/index status.
 3. Chạy API/Worker release images và readiness.
-4. Chạy golden report -> analysis -> `BUG-142` -> MarkDuplicate.
+4. Chạy golden report -> analysis -> `BUG-201` -> MarkDuplicate.
 5. Chạy Vision OFF/provider failure scenario, core result vẫn usable.
 6. Chạy held-out evaluation và export measured metrics với complete identity.
 7. Chạy paired `baseline-current`, `luna-terra-default` và escalation ablation; xuất quality/latency/cost theo route.

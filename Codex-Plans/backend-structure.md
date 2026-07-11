@@ -929,7 +929,7 @@ C.2 Analysis result shape
   "evidence": { "facts": [], "conflicts": [], "timeline": [] },
   "reproCase": {
     "title": "...",
-    "build": { "value": "1.4.12", "status": "supported", "sources": [] },
+    "build": { "value": "1.2.7", "status": "supported", "sources": [] },
     "confirmedSteps": [],
     "suggestedSteps": [],
     "expectedResult": { "value": "...", "sources": [] },

@@ -78,7 +78,7 @@ public sealed class DatabaseAndStorageIntegrationTests : IAsyncLifetime
             "SynthesizeReproCase",
             "default",
             "Test Reason",
-            "Gemini",
+            "OpenAI",
             "gemini-2.5-flash",
             "gemini-2.5-flash",
             "v1",
