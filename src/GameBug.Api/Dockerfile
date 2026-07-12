@@ -11,6 +11,7 @@ COPY src/GameBug.Api/GameBug.Api.csproj src/GameBug.Api/
 RUN dotnet restore src/GameBug.Api/GameBug.Api.csproj
 
 COPY src/ src/
+COPY screenshots/ screenshots/
 RUN dotnet publish src/GameBug.Api/GameBug.Api.csproj \
     -c Release \
     -o /app/publish \

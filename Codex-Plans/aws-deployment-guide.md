@@ -617,12 +617,13 @@ Seed bằng chính API image, chạy ở mode `Demo`:
 cd /opt/gamebug/repo
 
 docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env run --rm api \
-  seed --dataset demo-v1 --confirm GAMEBUG_DEMO_RESET
+  seed --dataset screenshots-v1 --confirm GAMEBUG_DEMO_RESET
 ```
 
 Seed command sẽ:
 
-- Reset/import demo data có guard.
+- Import 12 historical tickets từ `screenshots/tickets.json` và ghép metadata ảnh từ `screenshots/labels.json`.
+- Chạy idempotent: ticket đã tồn tại sẽ được cập nhật, không tạo record trùng.
 - Chỉ chạy trong `Local`, `Demo`, `Test`.
 - Từ chối nếu thiếu `--confirm GAMEBUG_DEMO_RESET`.
 - Từ chối nếu connection string không giống demo/local DB.
@@ -926,7 +927,7 @@ Nếu muốn về trạng thái sạch:
 cd /opt/gamebug/repo
 
 docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env run --rm api \
-  seed --dataset demo-v1 --confirm GAMEBUG_DEMO_RESET
+  seed --dataset screenshots-v1 --confirm GAMEBUG_DEMO_RESET
 
 docker compose -f deploy/docker-compose.demo.yml --env-file deploy/.env restart worker api
 ```

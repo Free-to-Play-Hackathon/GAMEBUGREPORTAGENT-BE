@@ -107,7 +107,7 @@ if (args.FirstOrDefault()?.Equals("seed", StringComparison.OrdinalIgnoreCase) ==
         throw new InvalidOperationException("Refusing to seed a non-demo database connection string.");
     }
 
-    string dataset = ReadArg(args, "--dataset") ?? "demo-v1";
+    string dataset = ReadArg(args, "--dataset") ?? "screenshots-v1";
     using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<DemoDataSeeder>().SeedAsync(dataset, CancellationToken.None);
     return;
