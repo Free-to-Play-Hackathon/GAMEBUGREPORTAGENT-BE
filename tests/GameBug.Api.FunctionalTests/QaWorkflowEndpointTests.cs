@@ -4,6 +4,7 @@ using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -16,7 +17,18 @@ public sealed class QaWorkflowEndpointTests : IClassFixture<WebApplicationFactor
     public QaWorkflowEndpointTests(WebApplicationFactory<Program> factory)
     {
         _client = factory.WithWebHostBuilder(builder =>
-                builder.ConfigureLogging(logging => logging.ClearProviders()))
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Ai:OpenAI:ApiKey"] = "test-api-key",
+                    ["Ai:Routes:ReportUnderstanding:Model"] = "gpt-4.1",
+                    ["Ai:Routes:ReproSynthesis:Model"] = "gpt-4.1"
+                });
+            });
+            builder.ConfigureLogging(logging => logging.ClearProviders());
+        })
             .CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
     }
 
