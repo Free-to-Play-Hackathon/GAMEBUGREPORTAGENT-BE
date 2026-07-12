@@ -37,7 +37,7 @@ public class ClarificationRequest
     {
         _questions.Add(question);
     }
-    
+
     public void SetResultingAnalysis(AnalysisRunId analysisRunId)
     {
         ResultingAnalysisRunId = analysisRunId;

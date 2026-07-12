@@ -109,7 +109,7 @@ internal sealed class MarkDuplicateCommandHandler : IRequestHandler<MarkDuplicat
             await ReleaseReservationAsync(idempotency.Value, cancellationToken);
             return Result.Failure(new DomainError("TRUST_GATE_VIOLATION", $"Action MarkDuplicate is not allowed based on the trust report outcome: {trustReport.Outcome}"));
         }
-        
+
 
 
         if (review == null)
@@ -143,7 +143,7 @@ internal sealed class MarkDuplicateCommandHandler : IRequestHandler<MarkDuplicat
         // Update BugReport Status
         var analysisRun = await _analysisRunRepository.GetAsync(review.AnalysisRunId, cancellationToken);
         var report = await _bugReportRepository.GetAsync(new GameBug.Domain.BugReports.BugReportId(analysisRun!.ReportId.Value), cancellationToken);
-        
+
         var reportUpdateResult = report!.CloseAsDuplicate(_clock.UtcNow);
         if (reportUpdateResult.IsFailure)
         {

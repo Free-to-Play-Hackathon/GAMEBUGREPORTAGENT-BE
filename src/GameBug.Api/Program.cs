@@ -145,7 +145,7 @@ app.MapHistoricalTicketEndpoints();
 app.MapQaReviewEndpoints();
 app.MapEvaluationEndpoints();
 
-app.MapGet("/", (IHostEnvironment environment) => 
+app.MapGet("/", (IHostEnvironment environment) =>
 {
     bool showSwaggerUi = environment.IsDevelopment() || environment.IsEnvironment("Demo") || environment.IsEnvironment("Local");
     return Results.Ok(new

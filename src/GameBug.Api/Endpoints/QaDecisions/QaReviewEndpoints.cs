@@ -84,13 +84,13 @@ public static class QaReviewEndpoints
             }
 
             var command = new MarkDuplicateCommand(
-                analysisId, 
-                request.DuplicateTicketId, 
-                request.CandidateSnapshotHash, 
-                request.ExpectedVersion, 
+                analysisId,
+                request.DuplicateTicketId,
+                request.CandidateSnapshotHash,
+                request.ExpectedVersion,
                 request.Notes,
                 idempotencyKey);
-                
+
             var result = await sender.Send(command, cancellationToken);
 
             if (result.IsFailure)
@@ -111,11 +111,11 @@ public static class QaReviewEndpoints
             var command = new CreateTicketCommand(
                 analysisId,
                 request.FinalRevisionId,
-                request.CandidateSnapshotHash, 
-                request.ExpectedVersion, 
+                request.CandidateSnapshotHash,
+                request.ExpectedVersion,
                 request.Notes,
                 idempotencyKey);
-                
+
             var result = await sender.Send(command, cancellationToken);
 
             if (result.IsFailure)
@@ -134,12 +134,12 @@ public static class QaReviewEndpoints
             }
 
             var command = new RejectAnalysisCommand(
-                analysisId, 
-                request.ReasonCode, 
-                request.ExpectedVersion, 
+                analysisId,
+                request.ReasonCode,
+                request.ExpectedVersion,
                 request.Notes,
                 idempotencyKey);
-                
+
             var result = await sender.Send(command, cancellationToken);
 
             if (result.IsFailure)
@@ -158,11 +158,11 @@ public static class QaReviewEndpoints
             }
 
             var command = new RequestInformationCommand(
-                analysisId, 
-                request.Questions, 
+                analysisId,
+                request.Questions,
                 request.ExpectedVersion,
                 idempotencyKey);
-                
+
             var result = await sender.Send(command, cancellationToken);
 
             if (result.IsFailure)
@@ -180,14 +180,14 @@ public static class QaReviewEndpoints
                 return error;
             }
 
-            var answers = request.Answers.Select(a => new ClarificationAnswerInput 
-            { 
-                QuestionId = a.QuestionId, 
-                AnswerText = a.AnswerText 
+            var answers = request.Answers.Select(a => new ClarificationAnswerInput
+            {
+                QuestionId = a.QuestionId,
+                AnswerText = a.AnswerText
             }).ToList();
-            
+
             var command = new AnswerClarificationCommand(analysisId, requestId, answers, idempotencyKey);
-                
+
             var result = await sender.Send(command, cancellationToken);
 
             if (result.IsFailure)

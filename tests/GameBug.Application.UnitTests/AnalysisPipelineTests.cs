@@ -496,7 +496,8 @@ Platform: iOS
             Arg.Any<object>(),
             Arg.Any<Exception>(),
             Arg.Any<Func<object, Exception?, string>>()))
-            .Do(x => {
+            .Do(x =>
+            {
                 var ex = x.ArgAt<Exception>(3);
                 if (ex != null) Console.WriteLine($"EXCEPTION IN HANDLER: {ex}");
             });

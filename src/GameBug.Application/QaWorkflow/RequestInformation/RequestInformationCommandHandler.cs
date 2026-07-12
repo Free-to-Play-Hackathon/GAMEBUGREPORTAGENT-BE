@@ -109,7 +109,7 @@ internal sealed class RequestInformationCommandHandler : IRequestHandler<Request
             await ReleaseReservationAsync(idempotency.Value, cancellationToken);
             return Result.Failure<Guid>(new DomainError("TRUST_GATE_VIOLATION", $"Action RequestMoreInformation is not allowed based on the trust report outcome: {trustReport.Outcome}"));
         }
-        
+
 
 
         if (review == null)

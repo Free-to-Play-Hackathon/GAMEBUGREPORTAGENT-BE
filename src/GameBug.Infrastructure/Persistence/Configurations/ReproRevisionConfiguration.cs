@@ -13,7 +13,7 @@ public class ReproRevisionConfiguration : IEntityTypeConfiguration<ReproRevision
 
         builder.Property(r => r.Id)
             .HasConversion(id => id.Value, value => new ReproRevisionId(value));
-            
+
         builder.Property(r => r.ReviewId)
             .HasConversion(id => id.Value, value => new QaReviewId(value))
             .IsRequired();

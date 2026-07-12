@@ -114,7 +114,7 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
             await ReleaseReservationAsync(idempotency.Value, cancellationToken);
             return Result.Failure(new DomainError("TRUST_GATE_VIOLATION", $"Action CreateTicket is not allowed based on the trust report outcome: {trustReport.Outcome}"));
         }
-        
+
 
         if (finalRevision is null)
         {
@@ -153,9 +153,9 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
         // A canonical payload representation for hashing
         string payloadData = $"{review.Id.Value}|{finalRevision.Id.Value}|{finalRevision.SerializedRepro}";
         string payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payloadData)));
-        
+
         string filingIdempotencyKey = $"filing:{review.Id.Value}";
-        
+
         // File the ticket via gateway
         var filingResult = await _ticketFilingGateway.FileTicketAsync(
             filingIdempotencyKey,

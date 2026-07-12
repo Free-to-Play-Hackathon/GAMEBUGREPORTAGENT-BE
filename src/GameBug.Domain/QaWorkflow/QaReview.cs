@@ -197,7 +197,7 @@ public class QaReview
 
             if (trimmed.Length > 500)
                 return Result.Failure<ClarificationRequest>(new DomainError("QaReview.QuestionTooLong", "Question is too long (max 500 chars)."));
-            
+
             request.AddQuestion(new ClarificationQuestion(ClarificationQuestionId.CreateUnique(), request.Id, trimmed));
         }
 

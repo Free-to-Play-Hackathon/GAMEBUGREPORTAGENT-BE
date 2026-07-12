@@ -97,7 +97,7 @@ public sealed class ReproValidatorTests
         // Arrange
         var parser = new GenericCrashLogParser();
         string logContent = "version: 2.1.0\nplatform: Android\nUnhandled exception: NullReferenceException: Object reference not set\n   at Game.Store.Open()\n   at Game.Main.Start()";
-        
+
         // Convert to UTF-16 LE
         byte[] bytes = Encoding.Unicode.GetBytes(logContent);
         using var stream = new MemoryStream(bytes);

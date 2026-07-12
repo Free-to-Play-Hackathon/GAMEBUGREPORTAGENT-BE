@@ -73,7 +73,7 @@ public class TrustReport
         var violationList = violations.ToList();
 
         // 1. Calculate outcome based on violations
-        bool hasCritical = violationList.Any(v => 
+        bool hasCritical = violationList.Any(v =>
             v.Code is "SCHEMA_INVALID" or "FAKE_SOURCE" or "UNSUPPORTED_CONFIRMED_OUTPUT" or "SUGGESTED_STEP_MISSING_REASON" or "UNKNOWN_HAS_VALUE" or
                 "CROSS_RUN_EVIDENCE_PACK" or "CROSS_RUN_REPRO_CASE");
 

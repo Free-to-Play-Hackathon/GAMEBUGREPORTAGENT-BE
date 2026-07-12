@@ -10,14 +10,14 @@ public class QaReviewConfiguration : IEntityTypeConfiguration<QaReview>
     {
         builder.ToTable("qa_reviews");
         builder.HasKey(r => r.Id);
-        
+
         builder.Property(r => r.Id)
             .HasConversion(id => id.Value, value => new QaReviewId(value));
-            
+
         builder.Property(r => r.AnalysisRunId)
             .HasConversion(id => id.Value, value => new Domain.Analysis.AnalysisRunId(value))
             .IsRequired();
-            
+
         // Unique index for 1:1 analysis to review
         builder.HasIndex(r => r.AnalysisRunId).IsUnique();
 
@@ -39,7 +39,7 @@ public class QaReviewConfiguration : IEntityTypeConfiguration<QaReview>
 
         builder.Property(r => r.OpenedAt)
             .IsRequired();
-            
+
         builder.Property(r => r.VersionToken)
             .IsConcurrencyToken();
 

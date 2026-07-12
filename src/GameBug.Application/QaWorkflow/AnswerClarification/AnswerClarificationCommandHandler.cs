@@ -161,7 +161,7 @@ internal sealed class AnswerClarificationCommandHandler : IRequestHandler<Answer
         }
 
         var latestRun = await _analysisRunRepository.GetLatestByReportIdAsync(report.Id, cancellationToken);
-        
+
         // Recompute input hash (including new answers in the hashing context)
         int nextVersion = (latestRun?.Version ?? oldAnalysisRun.Version) + 1;
         string baseData = $"{report.Id.Value}|{nextVersion}|{report.Description}|{report.BuildVersion}|{report.Platform}";
@@ -187,7 +187,7 @@ internal sealed class AnswerClarificationCommandHandler : IRequestHandler<Answer
         clarificationRequest.SetResultingAnalysis(newRun.Id);
 
         await _analysisRunRepository.AddAsync(newRun, cancellationToken);
-        
+
         var reportUpdateResult = report.UpdateStatus(ReportStatus.Submitted, _clock.UtcNow);
         if (reportUpdateResult.IsFailure)
         {

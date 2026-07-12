@@ -13,7 +13,7 @@ public class RequestInformationCommandValidator : AbstractValidator<RequestInfor
             .NotEmpty()
             .Must(q => q.Count >= 1 && q.Count <= 3)
             .WithMessage("Must provide 1 to 3 questions.");
-            
+
         RuleForEach(x => x.Questions)
             .NotEmpty()
             .MaximumLength(500);

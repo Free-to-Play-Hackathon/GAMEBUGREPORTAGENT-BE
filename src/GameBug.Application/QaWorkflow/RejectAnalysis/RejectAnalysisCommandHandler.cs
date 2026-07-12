@@ -110,7 +110,7 @@ internal sealed class RejectAnalysisCommandHandler : IRequestHandler<RejectAnaly
             await ReleaseReservationAsync(idempotency.Value, cancellationToken);
             return Result.Failure(new DomainError("TRUST_GATE_VIOLATION", $"Action RejectAnalysis is not allowed based on the trust report outcome: {trustReport.Outcome}"));
         }
-        
+
 
 
         if (review == null)

@@ -10,7 +10,7 @@ public class QaDecisionConfiguration : IEntityTypeConfiguration<QaDecision>
     {
         builder.ToTable("qa_decisions");
         builder.HasKey(d => d.Id);
-        
+
         builder.Property(d => d.Id)
             .HasConversion(id => id.Value, value => new QaDecisionId(value));
 
@@ -27,10 +27,10 @@ public class QaDecisionConfiguration : IEntityTypeConfiguration<QaDecision>
 
         builder.Property(d => d.Actor).HasMaxLength(128).IsRequired();
         builder.Property(d => d.DecidedAt).IsRequired();
-        
+
         builder.Property(d => d.RejectReasonCode).HasMaxLength(64);
         builder.Property(d => d.Notes).HasMaxLength(2000);
-        
+
         builder.HasOne<Domain.Duplicates.HistoricalTicket>()
             .WithMany()
             .HasForeignKey(d => d.DuplicateOfTicketId)

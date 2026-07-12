@@ -67,7 +67,7 @@ internal sealed class OpenQaReviewCommandHandler : IRequestHandler<OpenQaReviewC
         }
 
         var analysisId = new AnalysisRunId(request.AnalysisRunId);
-        
+
         var existingReview = await _reviewRepository.GetByAnalysisRunIdAsync(analysisId, cancellationToken);
         if (existingReview != null)
         {
@@ -112,7 +112,7 @@ internal sealed class OpenQaReviewCommandHandler : IRequestHandler<OpenQaReviewC
         }
 
         var snapshotHash = snapshotHashes[0];
-        
+
         if (request.CandidateSnapshotHash != snapshotHash)
         {
             await ReleaseReservationAsync(idempotency.Value, cancellationToken);
@@ -145,13 +145,13 @@ internal sealed class OpenQaReviewCommandHandler : IRequestHandler<OpenQaReviewC
         await _reviewRepository.AddAsync(review, cancellationToken);
         await QaWorkflowIdempotency.CompleteAsync(
             _idempotencyStore, idempotency.Value, review.Id.Value, _clock, cancellationToken);
-        
+
         await _auditWriter.WriteAsync(
-            "QaReview", 
-            review.Id.Value, 
-            "Opened", 
-            _currentUser.UserId!, 
-            new { AnalysisRunId = request.AnalysisRunId, CandidateSnapshotHash = request.CandidateSnapshotHash }, 
+            "QaReview",
+            review.Id.Value,
+            "Opened",
+            _currentUser.UserId!,
+            new { AnalysisRunId = request.AnalysisRunId, CandidateSnapshotHash = request.CandidateSnapshotHash },
             cancellationToken);
 
         await _unitOfWork.CommitTransactionAsync(cancellationToken);

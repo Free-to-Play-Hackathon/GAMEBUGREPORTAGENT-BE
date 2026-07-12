@@ -176,7 +176,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                 var sanitizedReport = _contentSanitizer.SanitizeDocument(report.Description);
                 Redactions.Add(sanitizedReport.Redactions.Count, new KeyValuePair<string, object?>("source", "report"));
                 sanitizedDescription = sanitizedReport.Text;
-                
+
                 var stageWarnings = new List<AnalysisWarning>();
                 if (sanitizedReport.InjectionSignals.Count > 0)
                 {
@@ -184,10 +184,10 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                 }
                 warnings.AddRange(stageWarnings);
 
-                var payload = new SanitizingCheckpointPayload 
-                { 
-                    SanitizedDescription = sanitizedDescription, 
-                    Warnings = stageWarnings 
+                var payload = new SanitizingCheckpointPayload
+                {
+                    SanitizedDescription = sanitizedDescription,
+                    Warnings = stageWarnings
                 };
                 var cp = new AnalysisCheckpoint(
                     Guid.NewGuid(), run.Id, AnalysisStage.Sanitizing, "1.0.0", run.InputHash, "Started", 1, DateTimeOffset.UtcNow);
@@ -238,7 +238,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                     .Where(a => a.AttachmentType == AttachmentType.Log)
                     .OrderBy(a => a.Id.Value)
                     .ToList();
-                
+
                 var stageWarnings = new List<AnalysisWarning>();
 
                 foreach (var logAttachment in logAttachments)
@@ -498,7 +498,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
                 var allBehaviors = await _gameContextRepository.GetExpectedBehaviorsAsync(cancellationToken);
                 var searchSource = sanitizedDescription.ToLowerInvariant();
 
-                string? resolvedBuild = evidencePack.Facts.FirstOrDefault(f => f.FactType == "buildVersion" && (f.Status == EvidenceStatus.Supported || f.Status == EvidenceStatus.Corroborated))?.NormalizedValue 
+                string? resolvedBuild = evidencePack.Facts.FirstOrDefault(f => f.FactType == "buildVersion" && (f.Status == EvidenceStatus.Supported || f.Status == EvidenceStatus.Corroborated))?.NormalizedValue
                     ?? report.BuildVersion;
 
                 var stageWarnings = new List<AnalysisWarning>();
@@ -572,7 +572,7 @@ public class ProcessAnalysisCommandHandler : IRequestHandler<ProcessAnalysisComm
             string configString = $"{run.SchemaVersion.Trim()}|{request.ConfigurationProfile.Trim()}|" +
                                   $"{normalizationRoute.RoutingPolicyVersion}|{normalizationRoute.Provider}|{normalizationRoute.Model}|{normalizationRoute.PromptVersion}|{normalizationRoute.SchemaVersion}|" +
                                   $"{reproRoute.RoutingPolicyVersion}|{reproRoute.Provider}|{reproRoute.Model}|{reproRoute.PromptVersion}|{reproRoute.SchemaVersion}";
-            
+
             string contextJson = JsonSerializer.Serialize(new
             {
                 MatchedEntities = matchedEntitiesDto!.Select(e => new { e.CanonicalName, e.Type }),

@@ -10,8 +10,8 @@ public class AnswerClarificationCommandValidator : AbstractValidator<AnswerClari
         RuleFor(x => x.RequestId).NotEmpty();
         RuleFor(x => x.Answers).NotEmpty();
         RuleFor(x => x.IdempotencyKey).NotEmpty().MinimumLength(8).MaximumLength(128);
-        
-        RuleForEach(x => x.Answers).ChildRules(answer => 
+
+        RuleForEach(x => x.Answers).ChildRules(answer =>
         {
             answer.RuleFor(x => x.QuestionId).NotEmpty();
             answer.RuleFor(x => x.AnswerText).NotEmpty().MaximumLength(2000);

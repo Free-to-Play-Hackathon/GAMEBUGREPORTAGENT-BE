@@ -63,7 +63,7 @@ public sealed class DatabaseAndStorageIntegrationTests : IAsyncLifetime
             .Options;
 
         using var context = new GameBugDbContext(options);
-        
+
         // Act - Migrate
         await context.Database.MigrateAsync();
 

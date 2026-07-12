@@ -152,7 +152,7 @@ public class GenericCrashLogParser : ILogEvidenceExtractor
             {
                 isStackFrame = true;
                 string normalizedFrame = HexAddressRegex.Replace(line.Trim(), "0x0");
-                
+
                 // Deduplicate identical adjacent frames
                 if (stackFrames.Count == 0 || stackFrames[^1] != normalizedFrame)
                 {
