@@ -3,7 +3,10 @@ using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Abstractions.Security;
 using GameBug.Application.Abstractions.Observability;
 using GameBug.Application.Abstractions.Time;
+using GameBug.Application.Duplicates;
+using GameBug.Application.HistoricalTickets.ImportHistoricalTickets;
 using GameBug.Application.QaWorkflow;
+using GameBug.Domain.Duplicates;
 using GameBug.Domain.QaWorkflow;
 using GameBug.Domain.SharedKernel;
 using GameBug.Domain.Trust;
@@ -25,6 +28,8 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
     private readonly IClock _clock;
     private readonly IAuditWriter _auditWriter;
     private readonly ITrustReportRepository _trustReportRepository;
+    private readonly IHistoricalTicketRepository _historicalTicketRepository;
+    private readonly IHistoricalTicketIndexQueue _historicalTicketIndexQueue;
 
     public CreateTicketCommandHandler(
         IQaReviewRepository reviewRepository,
@@ -36,7 +41,9 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
         ICurrentUser currentUser,
         IClock clock,
         IAuditWriter auditWriter,
-        ITrustReportRepository trustReportRepository)
+        ITrustReportRepository trustReportRepository,
+        IHistoricalTicketRepository historicalTicketRepository,
+        IHistoricalTicketIndexQueue historicalTicketIndexQueue)
     {
         _reviewRepository = reviewRepository;
         _analysisRunRepository = analysisRunRepository;
@@ -48,6 +55,8 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
         _clock = clock;
         _auditWriter = auditWriter;
         _trustReportRepository = trustReportRepository;
+        _historicalTicketRepository = historicalTicketRepository;
+        _historicalTicketIndexQueue = historicalTicketIndexQueue;
     }
 
     public async Task<Result> Handle(CreateTicketCommand request, CancellationToken cancellationToken)
@@ -150,6 +159,13 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
             return Result.Failure(new DomainError("CreateTicket.ReportNotFound", "Bug report not found."));
         }
 
+        var reproCase = await _analysisRunRepository.GetReproCaseAsync(review.AnalysisRunId, cancellationToken);
+        if (reproCase is null)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure(new DomainError("CreateTicket.ReproCaseNotFound", "A repro case is required before creating a ticket."));
+        }
+
         // A canonical payload representation for hashing
         string payloadData = $"{review.Id.Value}|{finalRevision.Id.Value}|{finalRevision.SerializedRepro}";
         string payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payloadData)));
@@ -199,6 +215,66 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
             return finalizeResult;
         }
 
+        string source = $"qa-{ticketData.SystemName}".ToLowerInvariant();
+        string triggerAction = string.Join("; ", reproCase.Steps.OrderBy(step => step.Order).Select(step => step.Description));
+        string summary = finalRevision.SerializedRepro;
+        string searchText = DuplicateTextNormalizer.BuildSearchText(
+            DuplicateSearchDocumentBuilder.TemplateVersion,
+            reproCase.Title,
+            summary,
+            report.Description,
+            triggerAction,
+            reproCase.ActualResult,
+            reproCase.ExpectedResult,
+            report.Platform,
+            report.BuildVersion);
+        DateTimeOffset promotedAt = _clock.UtcNow;
+        var promotedResult = HistoricalTicket.Create(
+            Guid.NewGuid(),
+            DuplicateSearchDocumentBuilder.DefaultProjectId,
+            source,
+            ticketData.ExternalTicketId,
+            reproCase.Title,
+            summary,
+            "open",
+            reproCase.SeverityEstimate.ToString(),
+            report.BuildVersion,
+            report.BuildVersion,
+            string.IsNullOrWhiteSpace(report.Platform) ? [] : [report.Platform],
+            null,
+            null,
+            [],
+            report.Description,
+            triggerAction,
+            null,
+            reproCase.ActualResult,
+            searchText,
+            DuplicateTextNormalizer.Hash(searchText),
+            "qa-approved-v1",
+            ticketData.FiledAt,
+            promotedAt);
+        if (promotedResult.IsFailure)
+        {
+            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+            return Result.Failure(promotedResult.Error);
+        }
+
+        HistoricalTicket promoted = promotedResult.Value;
+        HistoricalTicket? existingHistorical = await _historicalTicketRepository.GetByExternalIdAsync(
+            promoted.ProjectId, promoted.Source, promoted.ExternalId, cancellationToken);
+        Guid historicalTicketId;
+        if (existingHistorical is null)
+        {
+            await _historicalTicketRepository.SaveHistoricalTicketAsync(promoted, cancellationToken);
+            historicalTicketId = promoted.Id;
+        }
+        else
+        {
+            existingHistorical.UpdateFromImport(promoted, promotedAt);
+            historicalTicketId = existingHistorical.Id;
+        }
+        await _historicalTicketIndexQueue.EnqueueAsync(historicalTicketId, cancellationToken);
+
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         await QaWorkflowIdempotency.CompleteAsync(
             _idempotencyStore, idempotency.Value, review.Id.Value, _clock, cancellationToken);
@@ -208,7 +284,7 @@ internal sealed class CreateTicketCommandHandler : IRequestHandler<CreateTicketC
             review.Id.Value,
             "TicketCreated",
             _currentUser.UserId!,
-            new { ExpectedVersion = request.ExpectedVersion, ExternalTicketId = ticketData.ExternalTicketId },
+            new { ExpectedVersion = request.ExpectedVersion, ExternalTicketId = ticketData.ExternalTicketId, HistoricalTicketId = historicalTicketId },
             cancellationToken);
 
         await _unitOfWork.CommitTransactionAsync(cancellationToken);

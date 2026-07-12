@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using GameBug.Application.Abstractions.Persistence;
 using GameBug.Application.Duplicates;
+using GameBug.Application.HistoricalTickets.ImportHistoricalTickets;
 using GameBug.Domain.Duplicates;
 using GameBug.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -14,15 +15,18 @@ public sealed class DemoDataSeeder
     private readonly IHistoricalTicketRepository _tickets;
     private readonly IUnitOfWork _unitOfWork;
     private readonly GameBugDbContext _dbContext;
+    private readonly IHistoricalTicketIndexQueue _indexQueue;
 
     public DemoDataSeeder(
         IHistoricalTicketRepository tickets,
         IUnitOfWork unitOfWork,
-        GameBugDbContext dbContext)
+        GameBugDbContext dbContext,
+        IHistoricalTicketIndexQueue indexQueue)
     {
         _tickets = tickets;
         _unitOfWork = unitOfWork;
         _dbContext = dbContext;
+        _indexQueue = indexQueue;
     }
 
     public async Task SeedAsync(string datasetVersion, CancellationToken cancellationToken)
@@ -75,10 +79,12 @@ public sealed class DemoDataSeeder
             if (existing is null)
             {
                 await _tickets.SaveHistoricalTicketAsync(imported, cancellationToken);
+                await _indexQueue.EnqueueAsync(imported.Id, cancellationToken);
             }
             else
             {
                 existing.UpdateFromImport(imported, importedAt);
+                await _indexQueue.EnqueueAsync(existing.Id, cancellationToken);
             }
         }
 
