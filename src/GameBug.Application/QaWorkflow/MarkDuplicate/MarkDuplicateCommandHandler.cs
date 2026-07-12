@@ -104,11 +104,12 @@ internal sealed class MarkDuplicateCommandHandler : IRequestHandler<MarkDuplicat
             return Result.Failure(new DomainError("TRUST_REPORT_NOT_FOUND", "Trust report not found for the current review target."));
         }
 
-        if (!trustReport.AllowedActions.Contains(AllowedQaAction.MarkDuplicate))
-        {
-            await ReleaseReservationAsync(idempotency.Value, cancellationToken);
-            return Result.Failure(new DomainError("TRUST_GATE_VIOLATION", $"Action MarkDuplicate is not allowed based on the trust report outcome: {trustReport.Outcome}"));
-        }
+        // Hackathon/Demo: Bỏ qua kiểm tra Trust Gate để FE dễ dàng demo mọi luồng
+        // if (!trustReport.AllowedActions.Contains(AllowedQaAction.MarkDuplicate))
+        // {
+        //     await ReleaseReservationAsync(idempotency.Value, cancellationToken);
+        //     return Result.Failure(new DomainError("TRUST_GATE_VIOLATION", $"Action MarkDuplicate is not allowed based on the trust report outcome: {trustReport.Outcome}"));
+        // }
 
 
 
