@@ -48,6 +48,7 @@ public class MinioObjectStorage : IObjectStorage, IObjectStorageReader
 
                     tempStream.Write(buffer, 0, read);
                 }
+                return Task.CompletedTask;
             });
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
