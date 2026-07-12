@@ -37,7 +37,7 @@ long maxBodyBytes = builder.Configuration.GetValue<long?>("Intake:MaxRequestBody
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maxBodyBytes);
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = maxBodyBytes);
 
-if (builder.Environment.IsDevelopment())
+if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Demo") || builder.Environment.IsEnvironment("Local"))
 {
     builder.Services
         .AddAuthentication(DevelopmentAuthenticationHandler.SchemeName)
