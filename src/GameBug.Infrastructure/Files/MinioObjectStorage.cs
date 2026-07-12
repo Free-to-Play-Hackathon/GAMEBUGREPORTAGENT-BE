@@ -27,38 +27,26 @@ public class MinioObjectStorage : IObjectStorage, IObjectStorageReader
         CancellationToken cancellationToken)
     {
         string tempPath = Path.Combine(Path.GetTempPath(), $"gamebug-read-{Guid.NewGuid():N}.tmp");
-        var tempStream = new FileStream(
-            tempPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920,
-            FileOptions.Asynchronous | FileOptions.DeleteOnClose);
         var getArgs = new GetObjectArgs()
             .WithBucket(_options.BucketName)
             .WithObject(storageKey)
-            .WithCallbackStream(async (stream, ct) =>
-            {
-                byte[] buffer = new byte[81920];
-                long total = 0;
-                int read;
-                while ((read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
-                {
-                    total += read;
-                    if (total > maxBytes)
-                    {
-                        throw new InvalidDataException("Stored object exceeds the permitted read size.");
-                    }
-
-                    await tempStream.WriteAsync(buffer.AsMemory(0, read), ct);
-                }
-
-                await tempStream.FlushAsync(ct);
-            });
+            .WithFile(tempPath);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
 
+        FileStream? tempStream = null;
         try
         {
             await _minioClient.GetObjectAsync(getArgs, timeout.Token);
-            tempStream.Position = 0;
+            tempStream = new FileStream(
+                tempPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920,
+                FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+            if (tempStream.Length > maxBytes)
+            {
+                throw new InvalidDataException("Stored object exceeds the permitted read size.");
+            }
+
             string actualChecksum = Convert.ToHexString(await SHA256.HashDataAsync(tempStream, timeout.Token));
             if (!actualChecksum.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
             {
@@ -70,12 +58,28 @@ public class MinioObjectStorage : IObjectStorage, IObjectStorageReader
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            await tempStream.DisposeAsync();
+            if (tempStream is not null)
+            {
+                await tempStream.DisposeAsync();
+            }
+            else
+            {
+                File.Delete(tempPath);
+            }
+
             throw new ObjectStorageException("Object storage read timed out.", new TimeoutException());
         }
         catch (Exception exception)
         {
-            await tempStream.DisposeAsync();
+            if (tempStream is not null)
+            {
+                await tempStream.DisposeAsync();
+            }
+            else
+            {
+                File.Delete(tempPath);
+            }
+
             throw new ObjectStorageException("Failed to open read stream from object storage.", exception);
         }
     }
