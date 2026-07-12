@@ -52,10 +52,13 @@ else
 builder.Services.AddAuthorization();
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("DevelopmentFrontend", policy => policy
+    options.AddPolicy("AllowedFrontends", policy => policy
         .SetIsOriginAllowed(origin =>
             Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
-            (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || uri.Host.Equals("127.0.0.1")))
+            (uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+             uri.Host.Equals("127.0.0.1") ||
+             uri.Host.Equals("d18wn9blizqvjr.amplifyapp.com", StringComparison.OrdinalIgnoreCase) ||
+             uri.Host.EndsWith(".d18wn9blizqvjr.amplifyapp.com", StringComparison.OrdinalIgnoreCase)))
         .AllowAnyHeader()
         .AllowAnyMethod());
 });
@@ -113,10 +116,7 @@ if (args.FirstOrDefault()?.Equals("seed", StringComparison.OrdinalIgnoreCase) ==
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<SafeRequestLoggingMiddleware>();
-if (app.Environment.IsDevelopment())
-{
-    app.UseCors("DevelopmentFrontend");
-}
+app.UseCors("AllowedFrontends");
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
