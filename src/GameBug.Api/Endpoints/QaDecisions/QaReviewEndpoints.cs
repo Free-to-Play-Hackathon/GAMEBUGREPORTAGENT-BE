@@ -1,6 +1,7 @@
 using GameBug.Application.QaWorkflow.AnswerClarification;
 using GameBug.Application.QaWorkflow.CreateTicket;
 using GameBug.Application.QaWorkflow.GetReview;
+using GameBug.Application.QaWorkflow.GetTriageEfficiency;
 using GameBug.Application.QaWorkflow.MarkDuplicate;
 using GameBug.Application.QaWorkflow.OpenReview;
 using GameBug.Application.QaWorkflow.RejectAnalysis;
@@ -16,6 +17,11 @@ public static class QaReviewEndpoints
 {
     public static void MapQaReviewEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/api/v1/qa/triage-efficiency", async (ISender sender, CancellationToken cancellationToken) =>
+            Results.Ok(await sender.Send(new GetTriageEfficiencyQuery(), cancellationToken)))
+            .WithTags("QA Workflow")
+            .RequireAuthorization();
+
         var group = app.MapGroup("/api/v1/analyses/{analysisId:guid}")
             .WithTags("QA Workflow")
             .RequireAuthorization();

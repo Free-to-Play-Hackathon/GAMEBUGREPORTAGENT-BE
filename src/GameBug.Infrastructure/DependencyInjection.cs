@@ -99,6 +99,7 @@ public static class DependencyInjection
             options.SourceCommit = configuration["SourceCommit"];
             options.BuildVersion = configuration["BuildVersion"];
             options.PerCaseTimeoutSeconds = configuration.GetValue<int?>("Evaluation:PerCaseTimeoutSeconds") ?? 120;
+            options.ManualTriageBaselineSeconds = configuration.GetValue<int?>("Evaluation:ManualTriageBaselineSeconds") ?? 900;
         });
 
         services.AddOptions<VisionOptions>()

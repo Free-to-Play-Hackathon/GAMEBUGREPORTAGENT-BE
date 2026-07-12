@@ -48,10 +48,19 @@ public sealed class DuplicateMetricCalculator
             results.TryGetValue(caseId, out var result) &&
             string.Equals(result.ActualClassification, "LikelyDuplicate", StringComparison.OrdinalIgnoreCase));
 
+        // Unlike DuplicateRecallAt1/3 (did we rank the *correct* ticket highly), this is the
+        // true-positive rate of the binary duplicate/not-duplicate call: of genuine duplicates,
+        // how many did the pipeline flag as LikelyDuplicate at all. Pairs with HardNegativeFpRate
+        // to give a full detection confusion matrix.
+        int detectedAsDuplicate = duplicateTruth.Count(entry =>
+            results.TryGetValue(entry.CaseId, out var result) &&
+            string.Equals(result.ActualClassification, "LikelyDuplicate", StringComparison.OrdinalIgnoreCase));
+
         return new[]
         {
             MetricResult.Create("DuplicateRecallAt1", recallAt1, duplicateDenominator, "ratio", validity).Value,
             MetricResult.Create("DuplicateRecallAt3", recallAt3, duplicateDenominator, "ratio", validity).Value,
+            MetricResult.Create("DuplicateDetectionRate", detectedAsDuplicate, duplicateDenominator, "ratio", validity).Value,
             MetricResult.Create(
                 "MeanReciprocalRank",
                 (int)Math.Round(reciprocalRankSum * 1000),

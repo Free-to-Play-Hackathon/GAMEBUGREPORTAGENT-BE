@@ -108,10 +108,14 @@ public class MvpQualityGate : IQualityGate
                 "resourceAfter",
                 "receivedRewardCount",
                 "action",
-                "screen"
+                "screen",
+                "visualScreen",
+                "visualErrorMessage",
+                "visualUiState"
             },
             EvidenceSourceType.Log,
-            EvidenceSourceType.PlayerReport);
+            EvidenceSourceType.PlayerReport,
+            EvidenceSourceType.Screenshot);
         if (!hasActualEvidence)
         {
             violations.Add(new TrustViolation(
@@ -119,7 +123,7 @@ public class MvpQualityGate : IQualityGate
                 "reproCase.actualResult",
                 null,
                 IsBlocking: true, // Blocking
-                "No Log or PlayerReport source was found in the evidence pack to verify actual behavior."));
+                "No Log, PlayerReport, or Screenshot source was found in the evidence pack to verify actual behavior."));
         }
 
         // 5. Create immutable trust report using the static factory

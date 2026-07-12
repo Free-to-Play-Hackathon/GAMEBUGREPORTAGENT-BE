@@ -42,4 +42,14 @@ public class QaReviewRepository : IQaReviewRepository
     {
         await _dbContext.QaReviews.AddAsync(review, cancellationToken);
     }
+
+    public async Task<IReadOnlyList<TriageWindow>> GetDecidedTriageWindowsAsync(CancellationToken cancellationToken = default)
+    {
+        var rows = await _dbContext.QaReviews
+            .Where(r => r.Decision != null)
+            .Select(r => new { r.OpenedAt, DecidedAt = r.Decision!.DecidedAt })
+            .ToListAsync(cancellationToken);
+
+        return rows.Select(r => new TriageWindow(r.OpenedAt, r.DecidedAt)).ToList();
+    }
 }

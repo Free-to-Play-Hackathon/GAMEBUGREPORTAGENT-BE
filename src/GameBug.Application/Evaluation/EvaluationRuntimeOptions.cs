@@ -12,4 +12,10 @@ public sealed class EvaluationRuntimeOptions
     public string? SourceCommit { get; set; }
     public string? BuildVersion { get; set; }
     public int PerCaseTimeoutSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// Assumed manual (unassisted) triage duration per report, used as the baseline for
+    /// TriageTimeSavedRate until a real paired manual-vs-assisted study is run. Not a measured value.
+    /// </summary>
+    public int ManualTriageBaselineSeconds { get; set; } = 900;
 }
