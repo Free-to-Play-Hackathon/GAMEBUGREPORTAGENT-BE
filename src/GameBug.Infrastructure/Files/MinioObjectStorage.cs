@@ -33,12 +33,12 @@ public class MinioObjectStorage : IObjectStorage, IObjectStorageReader
         var getArgs = new GetObjectArgs()
             .WithBucket(_options.BucketName)
             .WithObject(storageKey)
-            .WithCallbackStream(async (stream, ct) =>
+            .WithCallbackStream((stream, ct) =>
             {
                 byte[] buffer = new byte[81920];
                 long total = 0;
                 int read;
-                while ((read = await stream.ReadAsync(buffer, ct)) > 0)
+                while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
                 {
                     total += read;
                     if (total > maxBytes)
@@ -46,7 +46,7 @@ public class MinioObjectStorage : IObjectStorage, IObjectStorageReader
                         throw new InvalidDataException("Stored object exceeds the permitted read size.");
                     }
 
-                    await tempStream.WriteAsync(buffer.AsMemory(0, read), ct);
+                    tempStream.Write(buffer, 0, read);
                 }
             });
 
